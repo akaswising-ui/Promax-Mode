@@ -1,0 +1,26 @@
+<!-- Merge into the existing AIDL audio_effects_config.xml; do not replace it. -->
+<libraries>
+    <library name="promax_voice" path="libpromaxvoiceaidl.so"/>
+</libraries>
+
+<effects>
+    <effect
+        name="promax_voice_changer"
+        library="promax_voice"
+        uuid="2c93b4f8-10b2-4d9f-bf5d-54a0b1f14d5c"
+        type="b9e4e1d0-a871-4f11-9b63-2db2d9b08431"/>
+</effects>
+
+<!--
+Attach only to the input sources verified for supported game voice chat.
+The two common candidates are MIC and VOICE_COMMUNICATION; test the actual
+AudioSource chosen by each game and Funtouch build before enabling both.
+-->
+<preprocess>
+    <stream type="mic">
+        <apply effect="promax_voice_changer"/>
+    </stream>
+    <stream type="voice_communication">
+        <apply effect="promax_voice_changer"/>
+    </stream>
+</preprocess>
