@@ -27,6 +27,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -170,7 +172,10 @@ private fun DashboardScreen(
     }
 
     Column(
-        Modifier.fillMaxSize().background(Color(0xFF090D14)).padding(18.dp),
+        Modifier.fillMaxSize()
+            .background(Color(0xFF090D14))
+            .verticalScroll(rememberScrollState())
+            .padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         androidx.compose.material3.Text("PROMAX MODE", fontSize = 25.sp, fontWeight = FontWeight.Black, color = Color.White)
@@ -364,29 +369,45 @@ private fun GamePickerDialog(onDismiss: () -> Unit, onSave: (Set<String>) -> Uni
 @Composable
 private fun AccessScreen() {
     val context = LocalContext.current
+    var refresh by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(1200)
+            refresh++
+        }
+    }
+    val overlayGranted = remember(refresh) { PermissionTools.hasOverlay(context) }
+    val usageGranted = remember(refresh) { PermissionTools.hasUsageAccess(context) }
+    val listenerGranted = remember(refresh) { PermissionTools.hasNotificationListenerAccess(context) }
+    val dndGranted = remember(refresh) { PermissionTools.hasNotificationPolicyAccess(context) }
+    val postNotificationsGranted = remember(refresh) {
+        Build.VERSION.SDK_INT < 33 ||
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+    }
+
     Column(
-        Modifier.fillMaxSize().background(Color(0xFF090D14)).padding(18.dp),
+        Modifier.fillMaxSize()
+            .background(Color(0xFF090D14))
+            .verticalScroll(rememberScrollState())
+            .padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         androidx.compose.material3.Text("Permissions", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
         androidx.compose.material3.Text("Grant only the access you plan to use.", color = Color(0xFF9DAEC3))
-        PermissionRow("Display over other apps", PermissionTools.hasOverlay(context)) {
+        PermissionRow("Display over other apps", overlayGranted) {
             PermissionTools.openOverlaySettings(context)
         }
-        PermissionRow("Usage access", PermissionTools.hasUsageAccess(context)) {
+        PermissionRow("Usage access", usageGranted) {
             PermissionTools.openUsageSettings(context)
         }
-        PermissionRow("Notification access", PermissionTools.hasNotificationListenerAccess(context)) {
+        PermissionRow("Notification access", listenerGranted) {
             PermissionTools.openNotificationListenerSettings(context)
         }
-        PermissionRow("Do Not Disturb access", PermissionTools.hasNotificationPolicyAccess(context)) {
+        PermissionRow("Do Not Disturb access", dndGranted) {
             PermissionTools.openNotificationPolicySettings(context)
         }
-        PermissionRow(
-            "Post foreground notification",
-            Build.VERSION.SDK_INT < 33 || context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-        ) {
-            if (Build.VERSION.SDK_INT >= 33 && context is Activity) {
+        PermissionRow("Post foreground notification", postNotificationsGranted) {
+            if (Build.VERSION.SDK_INT >= 33 && context is ComponentActivity) {
                 context.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 7302)
             }
         }
@@ -465,7 +486,10 @@ private fun VoiceStudioScreen() {
     }
 
     Column(
-        Modifier.fillMaxSize().background(Color(0xFF090D14)).padding(18.dp),
+        Modifier.fillMaxSize()
+            .background(Color(0xFF090D14))
+            .verticalScroll(rememberScrollState())
+            .padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         androidx.compose.material3.Text("Voice Studio", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)

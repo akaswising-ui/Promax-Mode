@@ -52,7 +52,6 @@ class VoiceRecorder(private val context: Context) {
             var recorder: AudioRecord? = null
             var player: AudioTrack? = null
             var sampleCount = 0L
-            var outputFile: File? = null
             try {
                 val minBuffer = AudioRecord.getMinBufferSize(
                     SAMPLE_RATE,
@@ -92,7 +91,10 @@ class VoiceRecorder(private val context: Context) {
                 val musicDir = context.getExternalFilesDir(Environment.DIRECTORY_MUSIC)
                     ?: context.filesDir
                 if (!musicDir.exists()) musicDir.mkdirs()
-                outputFile = File(musicDir, "promax_voice_" + System.currentTimeMillis() + ".wav")
+                val outputFile = File(
+                    musicDir,
+                    "promax_voice_" + System.currentTimeMillis() + ".wav"
+                )
 
                 val processor = VoiceProcessor(effect, SAMPLE_RATE)
                 val samples = ShortArray(1024)
@@ -120,8 +122,7 @@ class VoiceRecorder(private val context: Context) {
                 }
 
                 WavFile.writePcm16MonoHeader(outputFile, SAMPLE_RATE, sampleCount)
-                val saved = outputFile
-                mainHandler.post { onSaved(saved) }
+                mainHandler.post { onSaved(outputFile) }
             } catch (error: Exception) {
                 val message = error.message ?: "Audio recording failed"
                 mainHandler.post { onError(message) }
