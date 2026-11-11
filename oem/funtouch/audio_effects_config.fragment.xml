@@ -1,0 +1,21 @@
+<!-- Merge only the library and effect registration into the existing AIDL config. -->
+<libraries>
+    <library name="promax_voice" path="libpromaxvoiceaidl.so"/>
+</libraries>
+
+<effects>
+    <effect
+        name="promax_voice_changer"
+        library="promax_voice"
+        uuid="2c93b4f8-10b2-4d9f-bf5d-54a0b1f14d5c"
+        type="b9e4e1d0-a871-4f11-9b63-2db2d9b08431"/>
+</effects>
+
+<!--
+Do NOT add a global <preprocess> mapping for production by default.
+A <stream type="mic"> or <stream type="voice_communication"> mapping can
+affect microphone capture sessions beyond the game. The Funtouch audio-policy
+integration must attach this effect only to an allowlisted game's capture
+session/UID. A global stream mapping is suitable only for a controlled lab
+test where all matching microphone streams are intentionally processed.
+-->
