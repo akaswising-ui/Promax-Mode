@@ -65,6 +65,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.promax.mode.audio.LiveVoiceMonitorService
 import com.promax.mode.audio.NativeMp3
 import com.promax.mode.audio.VoiceEffect
 import com.promax.mode.audio.VoiceControlSettings
@@ -625,6 +626,13 @@ private fun VoiceStudioScreen() {
     var noiseGate by remember { mutableStateOf(initialControls.noiseGateDb) }
     var noiseSuppression by remember { mutableStateOf(initialControls.systemNoiseSuppression) }
     var effectsEnabled by remember { mutableStateOf(initialControls.enabled) }
+    var liveMonitor by remember {
+        mutableStateOf(
+            context.getSharedPreferences("promax_voice_runtime", Context.MODE_PRIVATE)
+                .getBoolean("live_monitor_active", false)
+        )
+    }
+    var liveStatus by remember { mutableStateOf("Live preview is off") }
     var recording by remember { mutableStateOf(false) }
     var lastWav by remember { mutableStateOf<File?>(null) }
     var status by remember { mutableStateOf("Ready") }
@@ -641,6 +649,43 @@ private fun VoiceStudioScreen() {
             context,
             VoiceControlSettings(effect, pitch, formant, noiseGate, noiseSuppression, effectsEnabled)
         )
+        if (liveMonitor) {
+            runCatching {
+                context.startService(
+                    Intent(context, LiveVoiceMonitorService::class.java)
+                        .setAction(LiveVoiceMonitorService.ACTION_UPDATE)
+                )
+            }
+        }
+    }
+
+    fun startLiveMonitor() {
+        if (recording) {
+            liveStatus = "Stop the WAV recorder before starting live preview."
+            return
+        }
+        persistVoiceControls()
+        try {
+            val intent = Intent(context, LiveVoiceMonitorService::class.java)
+                .setAction(LiveVoiceMonitorService.ACTION_START)
+            context.startForegroundService(intent)
+            liveMonitor = true
+            liveStatus = "Starting microphone DSP preview…"
+        } catch (error: Exception) {
+            liveMonitor = false
+            liveStatus = "Could not start live preview: " + (error.message ?: "Android permission restriction")
+        }
+    }
+
+    fun stopLiveMonitor() {
+        runCatching {
+            context.startService(
+                Intent(context, LiveVoiceMonitorService::class.java)
+                    .setAction(LiveVoiceMonitorService.ACTION_STOP)
+            )
+        }
+        liveMonitor = false
+        liveStatus = "Live preview stopped"
     }
 
     fun loadAudioFiles() {
@@ -688,6 +733,12 @@ private fun VoiceStudioScreen() {
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) startRecording() else status = "Microphone permission denied"
+    }
+
+    val livePermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) startLiveMonitor() else liveStatus = "Microphone permission denied"
     }
 
     val importLauncher = rememberLauncherForActivityResult(
@@ -759,7 +810,49 @@ private fun VoiceStudioScreen() {
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("Voice Studio", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
-        Text("Native C++ DSP • WAV recording • MP3 export • Soundboard", color = mutedText, fontSize = 12.sp)
+        Text("Native C++ DSP • live mic preview • WAV recording • MP3 export", color = mutedText, fontSize = 12.sp)
+
+        Card(colors = CardDefaults.cardColors(containerColor = cardColor)) {
+            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("LIVE VOICE MONITOR", fontWeight = FontWeight.Bold, color = Color.White)
+                        Text(liveStatus, color = mutedText, fontSize = 11.sp)
+                    }
+                    Text(
+                        if (liveMonitor) "● LIVE" else "○ OFF",
+                        color = if (liveMonitor) Color(0xFF63E0C1) else mutedText,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.sp
+                    )
+                }
+                Button(
+                    onClick = {
+                        if (liveMonitor) {
+                            stopLiveMonitor()
+                        } else if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                            startLiveMonitor()
+                        } else {
+                            livePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (liveMonitor) "STOP LIVE PREVIEW" else "START LIVE PREVIEW")
+                }
+                Text(
+                    "Promax processes your microphone in real time and plays the changed voice to headphones or the selected audio output. This is a local monitor, not a virtual microphone: Free Fire and other apps still receive their own Android microphone stream. Android may silence Promax capture while a game owns microphone priority.",
+                    color = Color(0xFFFFC27A),
+                    fontSize = 11.sp,
+                    lineHeight = 16.sp
+                )
+                Text(
+                    "Use wired or Bluetooth headphones to avoid acoustic feedback. A persistent Android microphone notification stays visible while the preview is running.",
+                    color = mutedText,
+                    fontSize = 10.sp
+                )
+            }
+        }
 
         Card(colors = CardDefaults.cardColors(containerColor = cardColor)) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
