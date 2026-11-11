@@ -1,0 +1,22 @@
+// Paste this module into hardware/interfaces/audio/aidl/default/Android.bp.
+// Copy PromaxVoiceEffect.cpp, PromaxVoiceEffect.h, PromaxVoiceDsp.cpp and
+// PromaxVoiceDsp.h into hardware/interfaces/audio/aidl/default/promax/ first.
+// This deliberately uses the AOSP EffectImpl implementation sources and
+// defaults from the same Android.bp package.
+cc_library_shared {
+    name: "libpromaxvoiceaidl",
+    defaults: ["aidlaudioeffectservice_defaults"],
+    srcs: [
+        "promax/PromaxVoiceEffect.cpp",
+        "promax/PromaxVoiceDsp.cpp",
+        ":effectCommonFile",
+    ],
+    relative_install_path: "soundfx",
+    cflags: [
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-Wthread-safety",
+        "-DBACKEND_NDK",
+    ],
+}
