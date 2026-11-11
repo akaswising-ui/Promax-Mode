@@ -55,7 +55,7 @@ class LiveVoiceMonitorService : Service() {
     private val running = AtomicBoolean(false)
     private val mainHandler = Handler(Looper.getMainLooper())
     private val audioCallback by lazy {
-        object : AudioRecord.AudioRecordingCallback() {
+        object : AudioManager.AudioRecordingCallback() {
             override fun onRecordingConfigChanged(configs: MutableList<android.media.AudioRecordingConfiguration>?) {
                 val activeConfig = audioRecord?.activeRecordingConfiguration
                 val silenced = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
