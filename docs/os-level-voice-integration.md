@@ -19,7 +19,7 @@ Key files:
 - `oem/funtouch/PromaxVoiceEffect.cpp` and `.h`: AIDL effect instance, effect UUIDs, control packet parsing and real-time DSP processing.
 - `oem/funtouch/PromaxVoiceDsp.cpp` and `.h`: bundled copy of the shared native DSP for the AOSP source tree.
 - `oem/funtouch/Android.bp.fragment`: Soong module fragment for the AOSP AIDL Effects HAL default package.
-- `oem/funtouch/audio_effects_config.fragment.xml`: library/effect/preprocess registration fragment.
+- `oem/funtouch/audio_effects_config.fragment.xml`: library/effect registration fragment.
 - `oem/funtouch/CONTROL_PROTOCOL.md`: control packet contract for the privileged Funtouch system component.
 - `oem/funtouch/README.md`: porting and build procedure.
 
@@ -29,7 +29,7 @@ Key files:
 2. Copy the four native source/header files into `hardware/interfaces/audio/aidl/default/promax/`.
 3. Append `Android.bp.fragment` to `hardware/interfaces/audio/aidl/default/Android.bp`, then build `libpromaxvoiceaidl`.
 4. Merge the XML fragment into the existing device AIDL effects config. Do not replace the vendor's current configuration.
-5. Confirm the product's AIDL Effects HAL factory loads the new library and that the configured mic capture source is the one used by the target game.
+5. Confirm the product's AIDL Effects HAL factory loads the new library. Extend Funtouch audio policy so it attaches the effect only to the allowlisted game's exact capture session/UID.
 6. Add a platform-signed Funtouch Game Assistant controller. It must enable the effect only for an allowlisted foreground game session and turn it off on exit, privacy-mic disable, call takeover, device change or controller failure.
 7. Run AIDL Effects HAL VTS, CTS audio tests, SELinux/product integration checks and real game voice-chat tests.
 
@@ -37,18 +37,18 @@ Android 14+ uses Stable AIDL for the Audio HAL. AOSP's default AIDL implementati
 
 ## Capture-source mapping
 
-The supplied XML fragment lists `mic` and `voice_communication` as candidate preprocessing sources. This does not prove every title uses those source IDs. Check the actual AudioSource selected by each game on the target Funtouch build. A game that uses a different source will bypass this chain unless the OEM deliberately attaches the effect there too.
+The checked-in XML fragment registers the library and effect but intentionally does not attach a global `<preprocess>` mapping. A global `mic` or `voice_communication` mapping may affect unrelated apps that use the same source. Funtouch's audio-policy extension must identify the game capture UID/session and attach the effect to that session only. The actual AudioSource is still important to confirm, but source type alone does not isolate a particular game.
 
 ## Control and privacy behavior
 
-The AIDL adapter is disabled by default. A privileged platform-signed controller must send the 24-byte version-1 `vendorEffect` packet documented in `oem/funtouch/CONTROL_PROTOCOL.md`. Ordinary APKs must not write protected vendor properties or issue arbitrary shell commands to control the HAL. The control service must not enable the effect globally for ordinary calls, recordings, assistant hotword capture or accessibility sessions.
+The AIDL adapter is disabled by default. A privileged platform-signed controller must send the 24-byte version-1 `vendorEffect` packet documented in `oem/funtouch/CONTROL_PROTOCOL.md`. Ordinary APKs must not write protected vendor properties or issue arbitrary shell commands to control the HAL. The audio-policy layer must not attach the effect globally to ordinary calls, recordings, assistant hotword capture or accessibility sessions.
 
 ## Current validation status
 
 - Shared DSP host tests and the regular Android preview build were already covered by the earlier shared-DSP CI run.
 - This OEM AIDL adapter has **not** been built against Vivo's proprietary Funtouch OS source tree or run on a Vivo device.
 - The APK has **not** gained a working game-microphone injection path by itself.
-- Actual teammate hearing is only established after the system image contains the adapter, the vendor routing attaches it to the game's active mic source, the privileged controller enables it and in-game loopback/remote tests pass.
+- Actual teammate hearing is only established after the system image contains the adapter, Funtouch audio policy attaches it to the game's exact capture session/UID, the privileged controller enables it and in-game loopback/remote tests pass.
 
 ## No-root boundary
 
