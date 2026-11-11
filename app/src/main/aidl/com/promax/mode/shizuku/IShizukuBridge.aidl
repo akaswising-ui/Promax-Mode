@@ -1,8 +1,8 @@
 package com.promax.mode.shizuku;
 
 interface IShizukuBridge {
-    void destroy() = 16777114;
-    void exit() = 1;
+    void destroy();
+    void exit();
     String getIdentity();
     String startFrameStats(String packageName);
     String dumpFrameStats(String packageName);
