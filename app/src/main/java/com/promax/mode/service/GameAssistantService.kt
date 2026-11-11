@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.app.role.RoleManager
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.graphics.Color
 import android.graphics.Canvas
@@ -14,6 +15,9 @@ import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
+import android.os.SystemClock
+import android.os.BatteryManager
+import android.net.TrafficStats
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -1092,20 +1096,43 @@ class GameAssistantService : Service() {
     private fun refreshMetrics() {
         val metrics = metricsReader.read()
         val cpu = metrics.cpuPercent
-        val gpu = metrics.gpuPercent
-        val ramPercent = if (metrics.ramTotalMb > 0L) {
-            (metrics.ramUsedMb.toFloat() / metrics.ramTotalMb.toFloat() * 100f).coerceIn(0f, 100f)
-        } else null
-        cpuGaugeView?.setMetric(cpu, cpu?.let { String.format("%.0f%%", it) } ?: "--")
-        gpuGaugeView?.setMetric(gpu, gpu?.let { String.format("%.0f%%", it) } ?: "N/A")
-        ramGaugeView?.setMetric(ramPercent, ramPercent?.let { String.format("%.0f%%", it) } ?: "--")
-        val cpuText = cpu?.let { String.format("%.0f%%", it) } ?: "sampling"
-        val gpuText = gpu?.let { String.format("%.0f%%", it) } ?: "unavailable on this device"
-        val ramText = metrics.ramUsedMb.toString() + " / " + metrics.ramTotalMb + " MB"
+        val cpuText = cpu?.let { String.format("%.0f%%", it) } ?: "--"
+        val ramText = if (metrics.ramTotalMb > 0L) {
+            String.format("%.0f%%", (metrics.ramUsedMb * 100f / metrics.ramTotalMb).coerceIn(0f, 100f))
+        } else "--"
+
+        val batteryIntent = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val temperatureTenths = batteryIntent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1) ?: -1
+        val temperatureText = if (temperatureTenths > 0) String.format("%.1f°C", temperatureTenths / 10f) else "N/A"
+
+        val rx = TrafficStats.getTotalRxBytes()
+        val tx = TrafficStats.getTotalTxBytes()
+        val now = SystemClock.elapsedRealtime()
+        var networkText = "--"
+        if (rx >= 0L && tx >= 0L && lastNetworkRx >= 0L && lastNetworkTx >= 0L && lastNetworkSampleMs > 0L) {
+            val elapsedSeconds = ((now - lastNetworkSampleMs).coerceAtLeast(1L)) / 1000f
+            val bytesPerSecond = ((rx - lastNetworkRx).coerceAtLeast(0L) + (tx - lastNetworkTx).coerceAtLeast(0L)) / elapsedSeconds
+            networkText = String.format("%.2f MB/s", bytesPerSecond / (1024f * 1024f))
+        }
+        lastNetworkRx = rx
+        lastNetworkTx = tx
+        lastNetworkSampleMs = now
+
+        val gpuText = metrics.gpuPercent?.let { String.format("%.0f%%", it) } ?: overlayGpuStatus
+        val ramUsed = metrics.ramUsedMb / 1024f
+        val ramTotal = metrics.ramTotalMb / 1024f
+        val ramAmount = if (metrics.ramTotalMb > 0L) String.format("%.1f/%.1fGB", ramUsed, ramTotal) else "--"
+
+        topStatsView?.text =
+            "FPS: " + overlayFpsStatus + "    CPU: " + cpuText + "    GPU: " + gpuText +
+            "\nRAM: " + ramAmount + "    TEMP: " + temperatureText + "    NET: " + networkText
+
         metricsView?.text = "CPU (system): " + cpuText +
-            "\nRAM (system): " + ramText +
+            "\nRAM (system): " + ramAmount +
             "\nGPU: " + gpuText +
-            "\nFPS: open Promax Game Monitor"
+            "\nFPS: " + overlayFpsStatus +
+            "\nTemperature: " + temperatureText +
+            "\nNetwork: " + networkText
     }
 
     private fun removePanel() {
@@ -1126,6 +1153,7 @@ class GameAssistantService : Service() {
         cpuGaugeView = null
         gpuGaugeView = null
         ramGaugeView = null
+        topStatsView = null
     }
 
     private fun removeHandle() {
