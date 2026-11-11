@@ -708,6 +708,10 @@ private fun VoiceStudioScreen() {
     }
 
     fun startRecording() {
+        if (liveMonitor) {
+            status = "Stop the live microphone monitor before recording a separate WAV."
+            return
+        }
         recorder.start(
             effect = if (effectsEnabled) effect else VoiceEffect.CLEAN,
             pitchSemitones = if (effectsEnabled) pitch else 0f,
@@ -739,6 +743,29 @@ private fun VoiceStudioScreen() {
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) startLiveMonitor() else liveStatus = "Microphone permission denied"
+    }
+
+    LaunchedEffect(liveMonitor) {
+        if (liveMonitor) {
+            repeat(8) {
+                delay(350)
+                val prefs = context.getSharedPreferences("promax_voice_runtime", Context.MODE_PRIVATE)
+                if (prefs.getBoolean("live_monitor_active", false)) {
+                    liveStatus = if (prefs.getBoolean("live_monitor_silenced", false)) {
+                        "Android has silenced Promax because another app owns microphone priority."
+                    } else {
+                        "Live DSP preview active • headphones recommended."
+                    }
+                    return@LaunchedEffect
+                }
+            }
+            val active = context.getSharedPreferences("promax_voice_runtime", Context.MODE_PRIVATE)
+                .getBoolean("live_monitor_active", false)
+            if (!active) {
+                liveMonitor = false
+                liveStatus = "Live preview did not start. Check microphone permission and Android's microphone access."
+            }
+        }
     }
 
     val importLauncher = rememberLauncherForActivityResult(
