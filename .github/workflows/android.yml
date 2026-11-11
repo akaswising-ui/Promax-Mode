@@ -34,6 +34,12 @@ jobs:
         with:
           gradle-version: "9.5.0"
 
+      - name: Build and test portable C++ voice DSP
+        run: |
+          cmake -S native/voice_dsp -B .build/voice-dsp
+          cmake --build .build/voice-dsp --parallel 2
+          ctest --test-dir .build/voice-dsp --output-on-failure
+
       - name: Build debug APK
         run: gradle assembleDebug
 

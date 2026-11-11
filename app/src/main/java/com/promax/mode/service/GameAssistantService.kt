@@ -5,7 +5,9 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.app.role.RoleManager
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.ServiceInfo
 import android.graphics.Color
 import android.graphics.Canvas
@@ -13,6 +15,9 @@ import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
+import android.os.SystemClock
+import android.os.BatteryManager
+import android.net.TrafficStats
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -29,11 +34,13 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.HorizontalScrollView
 import android.widget.SeekBar
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import com.promax.mode.MainActivity
+import com.promax.mode.audio.LiveVoiceMonitorService
 import com.promax.mode.audio.VoiceControlSettings
 import com.promax.mode.audio.VoiceControlStore
 import com.promax.mode.audio.VoiceEffect
@@ -44,6 +51,7 @@ import com.promax.mode.monitor.DeviceMetricsReader
 import com.promax.mode.monitor.ForegroundGameDetector
 import com.promax.mode.permissions.DndController
 import com.promax.mode.permissions.PermissionTools
+import com.promax.mode.shizuku.ShizukuController
 
 private class RingGaugeView(context: android.content.Context, private val caption: String) : View(context) {
     private val density = resources.displayMetrics.density
@@ -97,6 +105,8 @@ private class RingGaugeView(context: android.content.Context, private val captio
 class GameAssistantService : Service() {
     companion object {
         const val ACTION_STOP = "com.promax.mode.action.STOP_OVERLAY"
+        const val ACTION_SET_EYE_FILTER = "com.promax.mode.action.SET_EYE_FILTER"
+        const val EXTRA_EYE_FILTER_ENABLED = "com.promax.mode.extra.EYE_FILTER_ENABLED"
         private const val CHANNEL_ID = "promax_game_assistant"
         private const val NOTIFICATION_ID = 7301
     }
@@ -115,6 +125,14 @@ class GameAssistantService : Service() {
     private var cpuGaugeView: RingGaugeView? = null
     private var gpuGaugeView: RingGaugeView? = null
     private var ramGaugeView: RingGaugeView? = null
+    private var eyeFilterView: View? = null
+    private var activeGamePackage: String = ""
+    private var topStatsView: TextView? = null
+    private var overlayFpsStatus: String = "--"
+    private var overlayGpuStatus: String = "N/A"
+    private var lastNetworkRx: Long = -1L
+    private var lastNetworkTx: Long = -1L
+    private var lastNetworkSampleMs: Long = -1L
 
     private val pollTask = object : Runnable {
         override fun run() {
@@ -126,12 +144,21 @@ class GameAssistantService : Service() {
             if (foreground != null && games.contains(foreground) &&
                 PermissionTools.hasOverlay(this@GameAssistantService)
             ) {
+                activeGamePackage = foreground
                 activeGameLabel = runCatching {
                     packageManager.getApplicationLabel(packageManager.getApplicationInfo(foreground, 0)).toString().uppercase()
                 }.getOrDefault(foreground.substringAfterLast(".").uppercase())
                 showEdgeHandle()
+                val savedFilter = getSharedPreferences("promax_settings", MODE_PRIVATE)
+                    .getString("game_filter", if (getSharedPreferences("promax_settings", MODE_PRIVATE).getBoolean("eye_filter_enabled", false)) "WARM" else "OFF") ?: "OFF"
+                if (savedFilter != "OFF") {
+                    applyGameFilter(savedFilter, false)
+                } else {
+                    removeEyeFilter()
+                }
                 refreshMetrics()
             } else {
+                removeEyeFilter()
                 removePanel()
                 removeHandle()
             }
@@ -161,6 +188,15 @@ class GameAssistantService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
+        if (intent?.action == ACTION_SET_EYE_FILTER) {
+            val enabled = intent.getBooleanExtra(EXTRA_EYE_FILTER_ENABLED, false)
+            getSharedPreferences("promax_settings", MODE_PRIVATE)
+                .edit()
+                .putBoolean("eye_filter_enabled", enabled)
+                .putString("game_filter", if (enabled) "WARM" else "OFF")
+                .apply()
+            if (enabled) applyEyeFilter() else removeEyeFilter()
+        }
         handler.removeCallbacks(pollTask)
         handler.post(pollTask)
         return START_STICKY
@@ -169,9 +205,13 @@ class GameAssistantService : Service() {
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private fun monitorInterval(): Long {
-        val highRate = getSharedPreferences("promax_settings", MODE_PRIVATE)
-            .getBoolean("high_monitor_rate", false)
-        return if (highRate) 1_000L else 2_000L
+        val profile = getSharedPreferences("promax_settings", MODE_PRIVATE)
+            .getString("performance_profile", null)
+        return when (profile) {
+            "LOW POWER" -> 4_000L
+            "PRO GAMER" -> 1_000L
+            else -> 2_000L
+        }
     }
 
     private fun showEdgeHandle() {
@@ -294,20 +334,20 @@ class GameAssistantService : Service() {
         root.addView(header)
 
         val metricsCard = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(dp(4), dp(5), dp(4), dp(5))
-            background = panelSurface(0xFF152333.toInt(), 0xFF263A50.toInt(), 15)
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            background = panelSurface(0xFF202732.toInt(), 0xFF36424E.toInt(), 14)
         }
-        cpuGaugeView = RingGaugeView(this, "CPU")
-        gpuGaugeView = RingGaugeView(this, "GPU")
-        ramGaugeView = RingGaugeView(this, "RAM")
-        listOf(cpuGaugeView!!, gpuGaugeView!!, ramGaugeView!!).forEach { gauge ->
-            metricsCard.addView(gauge, LinearLayout.LayoutParams(0, dp(88), 1f))
-        }
-        root.addView(metricsCard, LinearLayout.LayoutParams(-1, dp(96)).apply {
+        val statsHeading = label("LIVE PERFORMANCE", 9f, 0xFF9BCFC3.toInt())
+        statsHeading.setTypeface(null, android.graphics.Typeface.BOLD)
+        metricsCard.addView(statsHeading)
+        topStatsView = label("FPS: --    CPU: --    GPU: --\nRAM: --    TEMP: --    NET: --", 10f, 0xFFE4EBF0.toInt())
+        topStatsView?.setPadding(0, dp(5), 0, 0)
+        metricsCard.addView(topStatsView)
+        root.addView(metricsCard, LinearLayout.LayoutParams(-1, dp(76)).apply {
             topMargin = dp(5)
-            bottomMargin = dp(7)
+            bottomMargin = dp(5)
         })
 
         val content = FrameLayout(this)
@@ -317,47 +357,93 @@ class GameAssistantService : Service() {
         var showToolsPanel: (() -> Unit)? = null
         var showBrowserPanel: (() -> Unit)? = null
 
-        val quickTools = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(5), 0, 0)
-        }
-        fun quickRow(first: Pair<String, () -> Unit>, second: Pair<String, () -> Unit>) {
-            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            row.addView(actionTile(first.first, first.second), LinearLayout.LayoutParams(0, dp(53), 1f).apply {
-                setMargins(dp(2), dp(2), dp(3), dp(2))
-            })
-            row.addView(actionTile(second.first, second.second), LinearLayout.LayoutParams(0, dp(53), 1f).apply {
-                setMargins(dp(3), dp(2), dp(2), dp(2))
-            })
-            quickTools.addView(row)
-        }
-
         val prefs = getSharedPreferences("promax_settings", MODE_PRIVATE)
-        quickRow("📞\nBLOCK CALLS" to {
+        val quickTools = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            setPadding(0, dp(5), 0, dp(4))
+        }
+        val quickToolsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        fun quickShortcut(icon: String, title: String, onTap: () -> Unit) {
+            val item = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                isClickable = true
+                isFocusable = true
+                setPadding(dp(5), dp(3), dp(5), dp(3))
+                setOnClickListener {
+                    animate().scaleX(0.94f).scaleY(0.94f).setDuration(70).withEndAction {
+                        animate().scaleX(1f).scaleY(1f).setDuration(90).start()
+                        onTap()
+                    }.start()
+                }
+            }
+            val circle = TextView(this).apply {
+                text = icon
+                textSize = 17f
+                gravity = Gravity.CENTER
+                setTextColor(0xFFBDF4E7.toInt())
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(0xFF183B3A.toInt())
+                    setStroke(dp(1), 0xFF397A71.toInt())
+                }
+            }
+            item.addView(circle, LinearLayout.LayoutParams(dp(42), dp(42)))
+            item.addView(TextView(this).apply {
+                text = title
+                textSize = 8.5f
+                gravity = Gravity.CENTER
+                setTextColor(0xFFDCE7E8.toInt())
+                maxLines = 1
+            }, LinearLayout.LayoutParams(dp(58), dp(20)))
+            quickToolsRow.addView(item, LinearLayout.LayoutParams(dp(62), dp(66)))
+        }
+        quickShortcut("🎙", "VOICE") { showVoicePanel?.invoke() }
+        quickShortcut("📸", "SHOT") {
+            Thread {
+                val result = runCatching { ShizukuController.takeScreenshot() }
+                    .getOrElse { "Connect Shizuku in Promax > Access first" }
+                handler.post { Toast.makeText(this@GameAssistantService, result, Toast.LENGTH_LONG).show() }
+            }.start()
+        }
+        quickShortcut("⏺", "RECORD") {
+            Thread {
+                val active = prefs.getBoolean("screen_recording_active", false)
+                val result = runCatching {
+                    if (active) ShizukuController.stopScreenRecording()
+                    else ShizukuController.startScreenRecording()
+                }.getOrElse { "Connect Shizuku in Promax > Access first" }
+                val recording = result.startsWith("RECORDING:")
+                prefs.edit().putBoolean("screen_recording_active", recording).apply()
+                handler.post { Toast.makeText(this@GameAssistantService, result, Toast.LENGTH_LONG).show() }
+            }.start()
+        }
+        quickShortcut("🔕", "SILENT") {
             if (!PermissionTools.hasNotificationPolicyAccess(this@GameAssistantService)) {
                 PermissionTools.openNotificationPolicySettings(this@GameAssistantService)
             } else {
                 val next = !prefs.getBoolean("silence_calls", false)
                 if (DndController.silenceCalls(this@GameAssistantService, next)) {
                     prefs.edit().putBoolean("silence_calls", next).apply()
+                    Toast.makeText(this@GameAssistantService, if (next) "Call alerts silenced" else "Call alerts restored", Toast.LENGTH_SHORT).show()
                 }
             }
-        }, "🔕\nBLOCK NOTIFS" to {
+        }
+        quickShortcut("◉", "NOTIFS") {
             if (!PermissionTools.hasNotificationListenerAccess(this@GameAssistantService)) {
                 PermissionTools.openNotificationListenerSettings(this@GameAssistantService)
             } else {
                 val next = !prefs.getBoolean("block_notifications", false)
                 prefs.edit().putBoolean("block_notifications", next).apply()
+                Toast.makeText(this@GameAssistantService, if (next) "Notification blocking on" else "Notification blocking off", Toast.LENGTH_SHORT).show()
             }
-        })
-        quickRow("🧹\nCLEAR RAM" to {
-            cacheDir.listFiles()?.forEach { it.deleteRecursively() }
-            externalCacheDir?.listFiles()?.forEach { it.deleteRecursively() }
-            Toast.makeText(this@GameAssistantService,
-                "Promax temporary cache cleared. Android manages other apps' RAM.",
-                Toast.LENGTH_LONG).show()
-        }, "⚙\nSETTINGS" to { showToolsPanel?.invoke() })
-        root.addView(quickTools, LinearLayout.LayoutParams(-1, dp(116)))
+        }
+        quickShortcut("☎", "CALLS") { toggleUnknownCallBlocking() }
+        quickTools.addView(quickToolsRow)
+        root.addView(quickTools, LinearLayout.LayoutParams(-1, dp(75)))
 
         fun addTools() {
             browser?.stopLoading()
@@ -401,6 +487,13 @@ class GameAssistantService : Service() {
                 }
             }
             tools.addView(calls, LinearLayout.LayoutParams(-1, dp(44)))
+            tools.addView(Button(this).apply {
+                text = if (prefs.getBoolean("block_unknown_calls", false)) "Call blocking: ON" else "Block incoming calls"
+                setOnClickListener {
+                    toggleUnknownCallBlocking()
+                    text = if (prefs.getBoolean("block_unknown_calls", false)) "Unknown-call blocking: ON" else "Block unknown incoming calls"
+                }
+            }, LinearLayout.LayoutParams(-1, dp(44)))
             val note = EditText(this).apply {
                 textSize = 12f
                 hint = "Quick game note"
@@ -427,6 +520,204 @@ class GameAssistantService : Service() {
             }, LinearLayout.LayoutParams(-1, dp(42)))
             content.addView(ScrollView(this).apply { addView(tools) })
             refreshMetrics()
+        }
+
+        fun addGameHome() {
+            browser?.stopLoading()
+            browser?.destroy()
+            browser = null
+            content.removeAllViews()
+            metricsView = null
+
+            val homeScroll = ScrollView(this).apply { isFillViewport = true }
+            val home = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(2), dp(3), dp(2), dp(4))
+            }
+            homeScroll.addView(home)
+
+            val modeTitle = label("PERFORMANCE MODE", 11f, 0xFFB6D7D0.toInt())
+            modeTitle.setTypeface(null, android.graphics.Typeface.BOLD)
+            home.addView(modeTitle, LinearLayout.LayoutParams(-1, dp(30)))
+
+            val currentProfile = prefs.getString("performance_profile", "BALANCED") ?: "BALANCED"
+            val modeCards = linkedMapOf<String, TextView>()
+            val modeRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            fun setPerformanceProfile(profile: String, showToast: Boolean = true) {
+                prefs.edit()
+                    .putString("performance_profile", profile)
+                    .putBoolean("high_monitor_rate", profile == "PRO GAMER")
+                    .apply()
+                modeCards.forEach { (name, view) ->
+                    val selected = name == profile
+                    view.background = panelSurface(
+                        if (selected) 0xFF174C48.toInt() else 0xFF242A34.toInt(),
+                        if (selected) 0xFF53C7B0.toInt() else 0xFF3B4653.toInt(),
+                        12
+                    )
+                    view.setTextColor(if (selected) 0xFFBDF4E7.toInt() else 0xFFD5DDE5.toInt())
+                }
+                handler.removeCallbacks(pollTask)
+                handler.post(pollTask)
+                if (showToast) Toast.makeText(
+                    this@GameAssistantService,
+                    when (profile) {
+                        "LOW POWER" -> "Low-power monitoring profile selected"
+                        "PRO GAMER" -> "High-rate monitoring profile selected"
+                        else -> "Balanced monitoring profile selected"
+                    },
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+            listOf("LOW POWER", "BALANCED", "PRO GAMER").forEach { profile ->
+                val tile = label(profile, 9f, 0xFFD5DDE5.toInt()).apply {
+                    gravity = Gravity.CENTER
+                    setPadding(dp(2), dp(3), dp(2), dp(3))
+                    isClickable = true
+                    isFocusable = true
+                }
+                modeCards[profile] = tile
+                modeRow.addView(tile, LinearLayout.LayoutParams(0, dp(54), 1f).apply {
+                    setMargins(dp(2), dp(2), dp(2), dp(4))
+                })
+                tile.setOnClickListener { setPerformanceProfile(profile) }
+            }
+            home.addView(modeRow)
+            setPerformanceProfile(currentProfile, false)
+
+            val metricsTitle = label("LIVE GAME STATUS", 11f, 0xFFB6D7D0.toInt()).apply {
+                setTypeface(null, android.graphics.Typeface.BOLD)
+            }
+            home.addView(metricsTitle, LinearLayout.LayoutParams(-1, dp(30)))
+            val liveMetrics = label("CPU: --     RAM: --\nGPU: driver dependent     FPS: start capture", 10f, 0xFFD9E2E8.toInt()).apply {
+                setPadding(dp(10), dp(8), dp(10), dp(8))
+                background = panelSurface(0xFF202832.toInt(), 0xFF37444E.toInt(), 12)
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            metricsView = liveMetrics
+            home.addView(liveMetrics, LinearLayout.LayoutParams(-1, dp(58)).apply {
+                bottomMargin = dp(6)
+            })
+            home.addView(label(
+                "CPU / RAM are device-wide. GPU uses an exposed driver counter. FPS needs Shizuku and a readable game layer.",
+                9f,
+                0xFF9BAEB7.toInt()
+            ), LinearLayout.LayoutParams(-1, dp(34)))
+
+            val monitorRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            val startFps = actionTile("START FPS") {
+                val pkg = activeGamePackage
+                if (pkg.isBlank()) {
+                    Toast.makeText(this@GameAssistantService, "Open a selected game first.", Toast.LENGTH_SHORT).show()
+                } else {
+                    liveMetrics.text = "FPS: capturing " + activeGameLabel + "…"
+                    Thread {
+                        val result = runCatching {
+                            val started = ShizukuController.startFrameStats(pkg)
+                            if (started != "CAPTURE_STARTED") started
+                            else {
+                                var measured = "FPS_UNAVAILABLE: no matching layer"
+                                repeat(6) {
+                                    Thread.sleep(850L)
+                                    val read = ShizukuController.dumpFrameStats(pkg)
+                                    if (read.startsWith("FPS=")) {
+                                        measured = read
+                                        return@runCatching measured
+                                    }
+                                    measured = read
+                                }
+                                measured
+                            }
+                        }.getOrElse { "FPS_UNAVAILABLE: connect Shizuku" }
+                        handler.post {
+                            overlayFpsStatus = result.removePrefix("FPS=").removePrefix("FPS_UNAVAILABLE:").trim().take(24)
+                            refreshMetrics()
+                            val current = liveMetrics.text.toString()
+                            liveMetrics.text = current.substringBefore("\n") + "\n" + result
+                        }
+                    }.start()
+                }
+            }
+            val sampleGpu = actionTile("SAMPLE GPU") {
+                Thread {
+                    val result = runCatching {
+                        ShizukuController.getGpuUsage()
+                        Thread.sleep(1_050L)
+                        ShizukuController.getGpuUsage()
+                    }.getOrElse { "GPU_UNAVAILABLE: connect Shizuku" }
+                    handler.post {
+                        overlayGpuStatus = result.removePrefix("GPU_DEVICE_WIDE=").removePrefix("GPU_UNAVAILABLE:").trim().take(24)
+                        refreshMetrics()
+                        Toast.makeText(this@GameAssistantService, result, Toast.LENGTH_LONG).show()
+                    }
+                }.start()
+            }
+            monitorRow.addView(startFps, LinearLayout.LayoutParams(0, dp(42), 1f).apply {
+                setMargins(dp(2), dp(2), dp(3), dp(2))
+            })
+            monitorRow.addView(sampleGpu, LinearLayout.LayoutParams(0, dp(42), 1f).apply {
+                setMargins(dp(3), dp(2), dp(2), dp(2))
+            })
+            home.addView(monitorRow)
+
+            val toolsTitle = label("GAME TOOLS", 11f, 0xFFB6D7D0.toInt()).apply {
+                setTypeface(null, android.graphics.Typeface.BOLD)
+            }
+            home.addView(toolsTitle, LinearLayout.LayoutParams(-1, dp(34)))
+
+            fun toolRow(first: Pair<String, () -> Unit>, second: Pair<String, () -> Unit>) {
+                val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                row.addView(actionTile(first.first, first.second), LinearLayout.LayoutParams(0, dp(52), 1f).apply {
+                    setMargins(dp(2), dp(2), dp(3), dp(2))
+                })
+                row.addView(actionTile(second.first, second.second), LinearLayout.LayoutParams(0, dp(52), 1f).apply {
+                    setMargins(dp(3), dp(2), dp(2), dp(2))
+                })
+                home.addView(row)
+            }
+            toolRow("🎙\nVOICE CHANGER" to { showVoicePanel?.invoke() },
+                "🎨\nGAME FILTERS" to {
+                    val current = prefs.getString("game_filter", "OFF") ?: "OFF"
+                    val nextFilter = when (current) {
+                        "OFF" -> "WARM"
+                        "WARM" -> "COOL"
+                        "COOL" -> "GREEN"
+                        else -> "OFF"
+                    }
+                    applyGameFilter(nextFilter)
+                    val labelText = if (nextFilter == "OFF") "Game filter off" else nextFilter.lowercase() + " display tint"
+                    Toast.makeText(this@GameAssistantService, labelText, Toast.LENGTH_SHORT).show()
+                })
+            toolRow("☝\nTOUCH OPTIM." to {
+                Toast.makeText(
+                    this@GameAssistantService,
+                    "Touch sampling is controlled by the phone manufacturer; Promax cannot change the OEM controller.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }, "🔔\nNOTIFICATIONS" to {
+                if (!PermissionTools.hasNotificationListenerAccess(this@GameAssistantService)) {
+                    PermissionTools.openNotificationListenerSettings(this@GameAssistantService)
+                } else {
+                    val next = !prefs.getBoolean("block_notifications", false)
+                    prefs.edit().putBoolean("block_notifications", next).apply()
+                    Toast.makeText(this@GameAssistantService, if (next) "Notifications blocked" else "Notifications allowed", Toast.LENGTH_SHORT).show()
+                }
+            })
+            toolRow("☎\nCALL BLOCKER" to { toggleUnknownCallBlocking() },
+                "⚙\nMORE SETTINGS" to { showToolsPanel?.invoke() })
+
+            val limitation = label(
+                "Performance profile changes Promax monitoring only. OEM CPU/GPU boost and touch response require supported system services.",
+                9f,
+                0xFF9BAEB7.toInt()
+            )
+            limitation.setPadding(dp(4), dp(8), dp(4), dp(5))
+            home.addView(limitation)
+            content.addView(homeScroll)
+            refreshMetrics()
+            homeScroll.alpha = 0f
+            homeScroll.translationY = dp(8).toFloat()
+            homeScroll.animate().alpha(1f).translationY(0f).setDuration(190).start()
         }
 
         fun addBrowser() {
@@ -531,6 +822,32 @@ class GameAssistantService : Service() {
             }
             voiceHeader.addView(collapse)
             voiceCard.addView(voiceHeader)
+
+            val liveMonitorActive = getSharedPreferences("promax_voice_runtime", MODE_PRIVATE)
+                .getBoolean("live_monitor_active", false)
+            voiceCard.addView(Button(this).apply {
+                text = if (liveMonitorActive) "STOP LIVE MIC PREVIEW" else "OPEN LIVE MIC CONTROLS"
+                setOnClickListener {
+                    if (liveMonitorActive) {
+                        startService(
+                            Intent(this@GameAssistantService, LiveVoiceMonitorService::class.java)
+                                .setAction(LiveVoiceMonitorService.ACTION_STOP)
+                        )
+                        Toast.makeText(this@GameAssistantService, "Live voice preview stopped", Toast.LENGTH_SHORT).show()
+                    } else {
+                        startActivity(
+                            Intent(this@GameAssistantService, MainActivity::class.java)
+                                .putExtra(MainActivity.EXTRA_OPEN_VOICE_STUDIO, true)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                        Toast.makeText(
+                            this@GameAssistantService,
+                            "Start Live Voice Monitor in Voice Studio while the app is open, then return to your game.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+            }, LinearLayout.LayoutParams(-1, dp(42)))
 
             val voiceBody = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
@@ -679,7 +996,7 @@ class GameAssistantService : Service() {
         showVoicePanel = { addVoice() }
         showToolsPanel = { addTools() }
         showBrowserPanel = { addBrowser() }
-        addVoice()
+        addGameHome()
 
         val layout = WindowManager.LayoutParams(
             if (resources.displayMetrics.widthPixels > resources.displayMetrics.heightPixels) {
@@ -728,23 +1045,128 @@ class GameAssistantService : Service() {
         })
     }
 
+    private fun toggleUnknownCallBlocking() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            Toast.makeText(this, "Call screening requires Android 10 or newer.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val roleManager = getSystemService(RoleManager::class.java)
+        if (roleManager == null || !roleManager.isRoleAvailable(RoleManager.ROLE_CALL_SCREENING)) {
+            Toast.makeText(this, "This Android build does not expose call screening.", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (!roleManager.isRoleHeld(RoleManager.ROLE_CALL_SCREENING)) {
+            val request = roleManager.createRequestRoleIntent(RoleManager.ROLE_CALL_SCREENING)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(request)
+            Toast.makeText(this, "Allow Promax as call-screening app, then tap Block Calls again.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val prefs = getSharedPreferences("promax_settings", MODE_PRIVATE)
+        val enabled = !prefs.getBoolean("block_unknown_calls", false)
+        prefs.edit().putBoolean("block_unknown_calls", enabled).apply()
+        Toast.makeText(this, if (enabled) "Incoming calls will be rejected while this switch is enabled." else "Incoming-call blocking disabled.", Toast.LENGTH_LONG).show()
+    }
+
+    private fun applyEyeFilter() {
+        applyGameFilter("WARM", false)
+    }
+
+    /**
+     * These are lightweight screen tints, not the OEM's GPU color-LUT filter
+     * pipeline. They are presented as display tints to avoid claiming a
+     * per-game renderer effect that a normal overlay cannot provide.
+     */
+    private fun applyGameFilter(filter: String, persist: Boolean = true) {
+        val normalized = filter.uppercase()
+        if (persist) {
+            getSharedPreferences("promax_settings", MODE_PRIVATE)
+                .edit().putString("game_filter", normalized).putBoolean("eye_filter_enabled", normalized != "OFF").apply()
+        }
+        if (normalized == "OFF") {
+            removeEyeFilter()
+            return
+        }
+        if (!PermissionTools.hasOverlay(this)) return
+
+        val tintColor = when (normalized) {
+            "WARM" -> 0x20FF9A42
+            "COOL" -> 0x1C70BFFF
+            "GREEN" -> 0x1B37E6A2
+            else -> 0x20FF9A42
+        }.toInt()
+        val current = eyeFilterView
+        if (current != null) {
+            current.setBackgroundColor(tintColor)
+            return
+        }
+        val tint = View(this).apply { setBackgroundColor(tintColor) }
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+        }
+        try {
+            windowManager?.addView(tint, params)
+            eyeFilterView = tint
+        } catch (_: Exception) {
+            eyeFilterView = null
+        }
+    }
+
+    private fun removeEyeFilter() {
+        val current = eyeFilterView ?: return
+        try { windowManager?.removeView(current) } catch (_: Exception) {}
+        eyeFilterView = null
+    }
+
     private fun refreshMetrics() {
         val metrics = metricsReader.read()
         val cpu = metrics.cpuPercent
-        val gpu = metrics.gpuPercent
-        val ramPercent = if (metrics.ramTotalMb > 0L) {
-            (metrics.ramUsedMb.toFloat() / metrics.ramTotalMb.toFloat() * 100f).coerceIn(0f, 100f)
-        } else null
-        cpuGaugeView?.setMetric(cpu, cpu?.let { String.format("%.0f%%", it) } ?: "--")
-        gpuGaugeView?.setMetric(gpu, gpu?.let { String.format("%.0f%%", it) } ?: "N/A")
-        ramGaugeView?.setMetric(ramPercent, ramPercent?.let { String.format("%.0f%%", it) } ?: "--")
-        val cpuText = cpu?.let { String.format("%.0f%%", it) } ?: "sampling"
-        val gpuText = gpu?.let { String.format("%.0f%%", it) } ?: "unavailable on this device"
-        val ramText = metrics.ramUsedMb.toString() + " / " + metrics.ramTotalMb + " MB"
+        val cpuText = cpu?.let { String.format("%.0f%%", it) } ?: "--"
+        val ramText = if (metrics.ramTotalMb > 0L) {
+            String.format("%.0f%%", (metrics.ramUsedMb * 100f / metrics.ramTotalMb).coerceIn(0f, 100f))
+        } else "--"
+
+        val batteryIntent = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val temperatureTenths = batteryIntent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1) ?: -1
+        val temperatureText = if (temperatureTenths > 0) String.format("%.1f°C", temperatureTenths / 10f) else "N/A"
+
+        val rx = TrafficStats.getTotalRxBytes()
+        val tx = TrafficStats.getTotalTxBytes()
+        val now = SystemClock.elapsedRealtime()
+        var networkText = "--"
+        if (rx >= 0L && tx >= 0L && lastNetworkRx >= 0L && lastNetworkTx >= 0L && lastNetworkSampleMs > 0L) {
+            val elapsedSeconds = ((now - lastNetworkSampleMs).coerceAtLeast(1L)) / 1000f
+            val bytesPerSecond = ((rx - lastNetworkRx).coerceAtLeast(0L) + (tx - lastNetworkTx).coerceAtLeast(0L)) / elapsedSeconds
+            networkText = String.format("%.2f MB/s", bytesPerSecond / (1024f * 1024f))
+        }
+        lastNetworkRx = rx
+        lastNetworkTx = tx
+        lastNetworkSampleMs = now
+
+        val gpuText = metrics.gpuPercent?.let { String.format("%.0f%%", it) } ?: overlayGpuStatus
+        val ramUsed = metrics.ramUsedMb / 1024f
+        val ramTotal = metrics.ramTotalMb / 1024f
+        val ramAmount = if (metrics.ramTotalMb > 0L) String.format("%.1f/%.1fGB", ramUsed, ramTotal) else "--"
+
+        topStatsView?.text =
+            "FPS: " + overlayFpsStatus + "    CPU: " + cpuText + "    GPU: " + gpuText +
+            "\nRAM: " + ramAmount + "    TEMP: " + temperatureText + "    NET: " + networkText
+
         metricsView?.text = "CPU (system): " + cpuText +
-            "\nRAM (system): " + ramText +
+            "\nRAM (system): " + ramAmount +
             "\nGPU: " + gpuText +
-            "\nFPS: open Promax Game Monitor"
+            "\nFPS: " + overlayFpsStatus +
+            "\nTemperature: " + temperatureText +
+            "\nNetwork: " + networkText
     }
 
     private fun removePanel() {
@@ -765,6 +1187,7 @@ class GameAssistantService : Service() {
         cpuGaugeView = null
         gpuGaugeView = null
         ramGaugeView = null
+        topStatsView = null
     }
 
     private fun removeHandle() {
@@ -804,6 +1227,7 @@ class GameAssistantService : Service() {
         handler.removeCallbacks(pollTask)
         removePanel()
         removeHandle()
+        removeEyeFilter()
         val prefs = getSharedPreferences("promax_settings", MODE_PRIVATE)
         if (prefs.getBoolean("silence_calls", false)) {
             DndController.silenceCalls(this, false)

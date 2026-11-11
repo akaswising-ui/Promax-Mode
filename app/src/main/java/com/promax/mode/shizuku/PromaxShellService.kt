@@ -1,6 +1,8 @@
 package com.promax.mode.shizuku
 
 import android.system.Os
+import android.system.OsConstants
+import com.promax.mode.monitor.SurfaceFlingerFpsParser
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
@@ -17,6 +19,9 @@ class PromaxShellService : IShizukuBridge.Stub() {
         private var lastGpuBusy = -1L
         private var lastGpuTotal = -1L
     }
+
+    private var screenRecordPid: Int? = null
+    private var screenRecordPath: String? = null
 
     override fun getIdentity(): String {
         val uid = Os.getuid()
@@ -49,19 +54,12 @@ class PromaxShellService : IShizukuBridge.Stub() {
             return "FPS_UNAVAILABLE: " + result.output.take(250)
         }
 
-        var selectedLayer = false
-        for (line in result.output.lines()) {
-            if (line.startsWith("layerName")) {
-                selectedLayer = line.substringAfter('=').contains(packageName, ignoreCase = true)
-            } else if (line.startsWith("packageName")) {
-                selectedLayer = line.substringAfter('=').trim() == packageName
-            }
-            if (selectedLayer) {
-                val match = Regex("averageFPS\\s*=\\s*([0-9]+(?:\\.[0-9]+)?)").find(line)
-                if (match != null) return "FPS=" + match.groupValues[1]
-            }
+        val fps = SurfaceFlingerFpsParser.parse(result.output, packageName)
+        return if (fps != null) {
+            "FPS=" + fps
+        } else {
+            "FPS_UNAVAILABLE: no matching SurfaceFlinger game layer for " + packageName
         }
-        return "FPS_UNAVAILABLE: no matching SurfaceFlinger layer for " + packageName
     }
 
     override fun getGpuUsage(): String {
@@ -92,6 +90,82 @@ class PromaxShellService : IShizukuBridge.Stub() {
             .coerceIn(0.0, 100.0)
         return "GPU_DEVICE_WIDE=" + ((percent * 10.0).roundToInt() / 10.0) + "% (KGSL)"
     }
+
+    override fun takeScreenshot(): String {
+        val directory = File("/sdcard/Pictures/PromaxMode")
+        if (!directory.exists() && !directory.mkdirs()) {
+            return "SCREENSHOT_ERROR: unable to create Pictures/PromaxMode"
+        }
+        val output = File(directory, "Screenshot-" + System.currentTimeMillis() + ".png")
+        val result = runFixedCommand(
+            listOf("/system/bin/screencap", "-p", output.absolutePath)
+        )
+        return if (result.exitCode == 0 && output.isFile && output.length() > 256L) {
+            "SCREENSHOT_SAVED: " + output.absolutePath
+        } else {
+            "SCREENSHOT_ERROR: " + result.output.take(180)
+        }
+    }
+
+    override fun startScreenRecording(): String {
+        val existingPid = screenRecordPid
+        if (existingPid != null && File("/proc/" + existingPid).exists()) {
+            return "RECORDING:" + (screenRecordPath ?: "already active")
+        }
+        val directory = File("/sdcard/Movies/PromaxMode")
+        if (!directory.exists() && !directory.mkdirs()) {
+            return "RECORDING_ERROR: unable to create Movies/PromaxMode"
+        }
+        val output = File(directory, "Screenrecord-" + System.currentTimeMillis() + ".mp4")
+        return try {
+            // Start screenrecord in the background and capture its PID from the
+            // Android shell. java.lang.Process.pid() is not part of Android's API.
+            val command = "/system/bin/screenrecord --bit-rate 4000000 --time-limit 180 '" +
+                output.absolutePath + "' >/dev/null 2>&1 & echo $!"
+            val launcher = ProcessBuilder("/system/bin/sh", "-c", command).start()
+            val pidText = launcher.inputStream.bufferedReader().use { it.readLine() }
+            launcher.waitFor(2L, TimeUnit.SECONDS)
+            val pid = pidText?.trim()?.toIntOrNull()
+            if (pid == null) {
+                "RECORDING_ERROR: unable to start Android screenrecord"
+            } else {
+                Thread.sleep(500L)
+                if (!File("/proc/" + pid).exists()) {
+                    "RECORDING_ERROR: Android screenrecord exited during startup"
+                } else {
+                    screenRecordPid = pid
+                    screenRecordPath = output.absolutePath
+                    "RECORDING:" + output.absolutePath
+                }
+            }
+        } catch (error: Exception) {
+            "RECORDING_ERROR: " + (error.message ?: "screenrecord unavailable")
+        }
+    }
+
+    override fun stopScreenRecording(): String {
+        val pid = screenRecordPid ?: return "RECORDING_NOT_ACTIVE"
+        val path = screenRecordPath.orEmpty()
+        try {
+            Os.kill(pid, OsConstants.SIGINT)
+            repeat(16) {
+                Thread.sleep(250L)
+                if (!File("/proc/" + pid).exists()) return@repeat
+            }
+        } catch (_: Exception) {
+            return "RECORDING_STOP_ERROR: unable to stop screenrecord process"
+        } finally {
+            screenRecordPid = null
+            screenRecordPath = null
+        }
+        val output = File(path)
+        return if (output.isFile && output.length() > 1024L) {
+            "RECORDING_SAVED: " + path
+        } else {
+            "RECORDING_STOPPED: file may be incomplete: " + path
+        }
+    }
+
 
     override fun listSharedDirectory(relativePath: String): Array<String> {
         val directory = resolveSharedPath(relativePath)

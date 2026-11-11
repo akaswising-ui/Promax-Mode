@@ -90,3 +90,15 @@ GitHub Actions also builds app/build/outputs/apk/debug/app-debug.apk and uploads
 ## Open-source notices
 
 The MP3 encoder source in app/src/main/cpp/shine/ is the Shine Layer III encoder. Its upstream source is distributed under GNU Library General Public License v2; the corresponding license text is included at app/src/main/cpp/shine/COPYING. Keep that notice and provide corresponding source when redistributing the linked encoder.
+
+
+## Shared native voice DSP core
+
+- Real-time processing is extracted to `native/voice_dsp` as a per-instance C++17 engine.
+- Supports float mono/stereo and PCM16, 44.1/48 kHz, pitch/formant/noise-gate controls and the current effect IDs.
+- Android preview JNI uses the same core. CI runs host CMake/CTest checks.
+- Keep one DSP instance per independent audio stream.
+
+## OS-level game microphone integration
+
+The APK remains a local microphone preview. It does **not** inject processed audio into another app's `AudioRecord` stream. True game voice processing requires this core inside the device vendor Audio Effects HAL and attached to microphone capture sources by the OEM system image. Android 14+ uses Stable AIDL Audio HAL; earlier devices use HIDL. Device routing differs. See [docs/os-level-voice-integration.md](docs/os-level-voice-integration.md).

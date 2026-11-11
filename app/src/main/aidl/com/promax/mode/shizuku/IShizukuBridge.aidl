@@ -7,6 +7,9 @@ interface IShizukuBridge {
     String startFrameStats(String packageName);
     String dumpFrameStats(String packageName);
     String getGpuUsage();
+    String takeScreenshot();
+    String startScreenRecording();
+    String stopScreenRecording();
     String[] listSharedDirectory(String relativePath);
     boolean createDirectory(String relativePath);
     boolean renameEntry(String relativePath, String newName);
