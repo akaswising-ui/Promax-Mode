@@ -35,14 +35,19 @@ public:
     PromaxVoiceEffectContext(size_t statusDepth, const Parameter::Common& common)
         : EffectContext(statusDepth, common) {}
 
+    void configure(int sampleRate, int channelCount) noexcept;
     bool setParams(const std::vector<uint8_t>& bytes);
     std::vector<uint8_t> getParams() const;
     const PromaxVoiceControlV1& control() const noexcept { return mControl; }
     promax::audio::PromaxVoiceDsp& dsp() noexcept { return mDsp; }
+    int sampleRate() const noexcept { return mSampleRate; }
+    int channelCount() const noexcept { return mChannelCount; }
 
 private:
     PromaxVoiceControlV1 mControl{};
     promax::audio::PromaxVoiceDsp mDsp{};
+    int mSampleRate = 0;
+    int mChannelCount = 0;
 };
 
 class PromaxVoiceEffect final : public EffectImpl {
