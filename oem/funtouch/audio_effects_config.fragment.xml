@@ -1,4 +1,4 @@
-<!-- Merge into the existing AIDL audio_effects_config.xml; do not replace it. -->
+<!-- Merge only the library and effect registration into the existing AIDL config. -->
 <libraries>
     <library name="promax_voice" path="libpromaxvoiceaidl.so"/>
 </libraries>
@@ -12,15 +12,10 @@
 </effects>
 
 <!--
-Attach only to the input sources verified for supported game voice chat.
-The two common candidates are MIC and VOICE_COMMUNICATION; test the actual
-AudioSource chosen by each game and Funtouch build before enabling both.
+Do NOT add a global <preprocess> mapping for production by default.
+A <stream type="mic"> or <stream type="voice_communication"> mapping can
+affect microphone capture sessions beyond the game. The Funtouch audio-policy
+integration must attach this effect only to an allowlisted game's capture
+session/UID. A global stream mapping is suitable only for a controlled lab
+test where all matching microphone streams are intentionally processed.
 -->
-<preprocess>
-    <stream type="mic">
-        <apply effect="promax_voice_changer"/>
-    </stream>
-    <stream type="voice_communication">
-        <apply effect="promax_voice_changer"/>
-    </stream>
-</preprocess>
