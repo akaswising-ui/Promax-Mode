@@ -20,7 +20,7 @@ class PromaxShellService : IShizukuBridge.Stub() {
         private var lastGpuTotal = -1L
     }
 
-    private var screenRecordProcess: Process? = null
+    private var screenRecordPid: Int? = null
     private var screenRecordPath: String? = null
 
     override fun getIdentity(): String {
@@ -108,8 +108,8 @@ class PromaxShellService : IShizukuBridge.Stub() {
     }
 
     override fun startScreenRecording(): String {
-        val existing = screenRecordProcess
-        if (existing != null && existing.isAlive) {
+        val existingPid = screenRecordPid
+        if (existingPid != null && File("/proc/" + existingPid).exists()) {
             return "RECORDING:" + (screenRecordPath ?: "already active")
         }
         val directory = File("/sdcard/Movies/PromaxMode")
@@ -118,22 +118,25 @@ class PromaxShellService : IShizukuBridge.Stub() {
         }
         val output = File(directory, "Screenrecord-" + System.currentTimeMillis() + ".mp4")
         return try {
-            val process = ProcessBuilder(
-                "/system/bin/screenrecord",
-                "--bit-rate", "4000000",
-                "--time-limit", "180",
-                output.absolutePath
-            )
-                .redirectOutput(File("/dev/null"))
-                .redirectError(File("/dev/null"))
-                .start()
-            Thread.sleep(350L)
-            if (!process.isAlive) {
-                "RECORDING_ERROR: Android screenrecord could not start"
+            // Start screenrecord in the background and capture its PID from the
+            // Android shell. java.lang.Process.pid() is not part of Android's API.
+            val command = "/system/bin/screenrecord --bit-rate 4000000 --time-limit 180 '" +
+                output.absolutePath + "' >/dev/null 2>&1 & echo $!"
+            val launcher = ProcessBuilder("/system/bin/sh", "-c", command).start()
+            val pidText = launcher.inputStream.bufferedReader().use { it.readLine() }
+            launcher.waitFor(2L, TimeUnit.SECONDS)
+            val pid = pidText?.trim()?.toIntOrNull()
+            if (pid == null) {
+                "RECORDING_ERROR: unable to start Android screenrecord"
             } else {
-                screenRecordProcess = process
-                screenRecordPath = output.absolutePath
-                "RECORDING:" + output.absolutePath
+                Thread.sleep(500L)
+                if (!File("/proc/" + pid).exists()) {
+                    "RECORDING_ERROR: Android screenrecord exited during startup"
+                } else {
+                    screenRecordPid = pid
+                    screenRecordPath = output.absolutePath
+                    "RECORDING:" + output.absolutePath
+                }
             }
         } catch (error: Exception) {
             "RECORDING_ERROR: " + (error.message ?: "screenrecord unavailable")
@@ -141,18 +144,18 @@ class PromaxShellService : IShizukuBridge.Stub() {
     }
 
     override fun stopScreenRecording(): String {
-        val process = screenRecordProcess
-            ?: return "RECORDING_NOT_ACTIVE"
+        val pid = screenRecordPid ?: return "RECORDING_NOT_ACTIVE"
         val path = screenRecordPath.orEmpty()
         try {
-            val pid = process.pid().toInt()
             Os.kill(pid, OsConstants.SIGINT)
-            process.waitFor(5L, TimeUnit.SECONDS)
+            repeat(16) {
+                Thread.sleep(250L)
+                if (!File("/proc/" + pid).exists()) return@repeat
+            }
         } catch (_: Exception) {
-            runCatching { process.destroy() }
-            runCatching { process.waitFor(3L, TimeUnit.SECONDS) }
+            return "RECORDING_STOP_ERROR: unable to stop screenrecord process"
         } finally {
-            screenRecordProcess = null
+            screenRecordPid = null
             screenRecordPath = null
         }
         val output = File(path)
