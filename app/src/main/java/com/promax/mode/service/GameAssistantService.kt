@@ -60,6 +60,10 @@ class GameAssistantService : Service() {
     private var handleParams: WindowManager.LayoutParams? = null
     private var browser: WebView? = null
     private var expanded = true
+    private var activeGameLabel = "GAME"
+    private var cpuMetricView: TextView? = null
+    private var gpuMetricView: TextView? = null
+    private var ramMetricView: TextView? = null
 
     private val pollTask = object : Runnable {
         override fun run() {
@@ -71,6 +75,9 @@ class GameAssistantService : Service() {
             if (foreground != null && games.contains(foreground) &&
                 PermissionTools.hasOverlay(this@GameAssistantService)
             ) {
+                activeGameLabel = runCatching {
+                    packageManager.getApplicationLabel(packageManager.getApplicationInfo(foreground, 0)).toString().uppercase()
+                }.getOrDefault(foreground.substringAfterLast(".").uppercase())
                 showEdgeHandle()
                 refreshMetrics()
             } else {
@@ -175,14 +182,17 @@ class GameAssistantService : Service() {
 
     private fun showPanel() {
         if (panel != null || !PermissionTools.hasOverlay(this)) return
+        fun surface(color: Int, stroke: Int = 0xFF34485F.toInt(), radius: Int = 14): GradientDrawable =
+            GradientDrawable().apply {
+                setColor(color)
+                cornerRadius = dp(radius).toFloat()
+                setStroke(dp(1), stroke)
+            }
+
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), dp(10), dp(12), dp(12))
-            background = GradientDrawable().apply {
-                setColor(0xF20D1521.toInt())
-                cornerRadius = dp(20).toFloat()
-                setStroke(dp(1), 0xFF526984.toInt())
-            }
+            setPadding(dp(10), dp(10), dp(10), dp(10))
+            background = surface(0xF20D1521.toInt(), 0xFF526984.toInt(), 20)
         }
 
         val header = LinearLayout(this).apply {
@@ -190,107 +200,39 @@ class GameAssistantService : Service() {
             gravity = Gravity.CENTER_VERTICAL
         }
         val title = TextView(this).apply {
-            text = "PROMAX ASSISTANT"
+            text = "GAME ASSISTANT  |  " + activeGameLabel
             textSize = 13f
             setTextColor(Color.WHITE)
-            setPadding(dp(4), 0, 0, 0)
+            setPadding(dp(4), 0, dp(4), 0)
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
         }
-        val close = Button(this).apply {
-            text = "×"
-            textSize = 20f
-            setOnClickListener { removePanel() }
-        }
+        fun headerAction(symbol: String, description: String): TextView =
+            TextView(this).apply {
+                text = symbol
+                contentDescription = description
+                gravity = Gravity.CENTER
+                textSize = 19f
+                setTextColor(0xFFE5EDF8.toInt())
+                background = surface(0xFF1D2A3A.toInt(), 0xFF3B5876.toInt(), 12)
+                isClickable = true
+                isFocusable = true
+                setPadding(dp(7), 0, dp(7), 0)
+            }
+        val toolsTab = headerAction("⚙", "Settings")
+        val voiceTab = headerAction("🎙", "Voice controls")
+        val browserTab = headerAction("🌐", "Browser")
+        val close = headerAction("×", "Close floating window")
         header.addView(title, LinearLayout.LayoutParams(0, dp(44), 1f))
-        header.addView(close, LinearLayout.LayoutParams(dp(54), dp(44)))
-        root.addView(header)
-
-        val tabs = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
+        listOf(toolsTab, voiceTab, browserTab, close).forEach { action ->
+            header.addView(action, LinearLayout.LayoutParams(dp(38), dp(38)).apply {
+                setMargins(dp(2), 0, dp(2), 0)
+            })
         }
-        val toolsTab = Button(this).apply { text = "Tools" }
-        val voiceTab = Button(this).apply { text = "Voice" }
-        val browserTab = Button(this).apply { text = "Browser" }
-        tabs.addView(toolsTab, LinearLayout.LayoutParams(0, dp(42), 1f))
-        tabs.addView(voiceTab, LinearLayout.LayoutParams(0, dp(42), 1f))
-        tabs.addView(browserTab, LinearLayout.LayoutParams(0, dp(42), 1f))
-        root.addView(tabs)
+        root.addView(header)
 
         val content = FrameLayout(this)
         root.addView(content, LinearLayout.LayoutParams(-1, 0, 1f))
-
-        fun addTools() {
-            browser?.stopLoading()
-            browser?.destroy()
-            browser = null
-            content.removeAllViews()
-            val tools = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(6), dp(6), dp(6), dp(6))
-            }
-            val metrics = TextView(this).apply {
-                textSize = 13f
-                setTextColor(0xFFE5EDF8.toInt())
-                text = "Reading device metrics..."
-                setPadding(0, dp(8), 0, dp(8))
-            }
-            metricsView = metrics
-            tools.addView(metrics)
-
-            val prefs = getSharedPreferences("promax_settings", MODE_PRIVATE)
-            val notificationButton = Button(this).apply {
-                text = if (prefs.getBoolean("block_notifications", false)) {
-                    "Notifications: ON"
-                } else "Block notifications"
-                setOnClickListener {
-                    if (!PermissionTools.hasNotificationListenerAccess(this@GameAssistantService)) {
-                        PermissionTools.openNotificationListenerSettings(this@GameAssistantService)
-                    } else {
-                        val next = !prefs.getBoolean("block_notifications", false)
-                        prefs.edit().putBoolean("block_notifications", next).apply()
-                        text = if (next) "Notifications: ON" else "Block notifications"
-                    }
-                }
-            }
-            tools.addView(notificationButton)
-
-            val callsButton = Button(this).apply {
-                text = if (prefs.getBoolean("silence_calls", false)) {
-                    "Call alerts: SILENCED"
-                } else "Silence call alerts (DND)"
-                setOnClickListener {
-                    if (!PermissionTools.hasNotificationPolicyAccess(this@GameAssistantService)) {
-                        PermissionTools.openNotificationPolicySettings(this@GameAssistantService)
-                    } else {
-                        val next = !prefs.getBoolean("silence_calls", false)
-                        if (DndController.silenceCalls(this@GameAssistantService, next)) {
-                            prefs.edit().putBoolean("silence_calls", next).apply()
-                            text = if (next) "Call alerts: SILENCED" else "Silence call alerts (DND)"
-                        }
-                    }
-                }
-            }
-            tools.addView(callsButton)
-
-            val note = EditText(this).apply {
-                textSize = 13f
-                hint = "Quick game note"
-                setSingleLine(false)
-                minLines = 2
-                maxLines = 4
-                setText(prefs.getString("quick_note", ""))
-            }
-            tools.addView(note, LinearLayout.LayoutParams(-1, dp(90)))
-            tools.addView(Button(this).apply {
-                text = "Save note"
-                setOnClickListener {
-                    prefs.edit().putString("quick_note", note.text.toString()).apply()
-                    text = "Saved"
-                }
-            })
-            content.addView(tools)
-        }
-
 
         fun addVoice() {
             browser?.stopLoading()
@@ -356,36 +298,207 @@ class GameAssistantService : Service() {
                     max = 200
                     progress = (((initial - minimum) / (maximum - minimum)) * 200f).toInt().coerceIn(0, 200)
                     setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                    fun addVoice() {
+            browser?.stopLoading()
+            browser?.destroy()
+            browser = null
+            metricsView = null
+            cpuMetricView = null
+            gpuMetricView = null
+            ramMetricView = null
+            content.removeAllViews()
+
+            var settings = VoiceControlStore.load(this@GameAssistantService)
+            val scroll = ScrollView(this).apply { isFillViewport = true }
+            val voiceLayout = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(4), dp(7), dp(4), dp(10))
+            }
+            scroll.addView(voiceLayout)
+            content.addView(scroll)
+
+            fun label(value: String, size: Float = 12f, color: Int = 0xFFE5EDF8.toInt()): TextView =
+                TextView(this).apply {
+                    text = value
+                    textSize = size
+                    setTextColor(color)
+                    setPadding(dp(2), dp(3), dp(2), dp(3))
+                }
+
+            fun metricCard(caption: String, value: TextView): LinearLayout {
+                val card = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    gravity = Gravity.CENTER
+                    setPadding(dp(4), dp(7), dp(4), dp(7))
+                    background = surface(0xFF172536.toInt(), 0xFF34506B.toInt(), 13)
+                }
+                card.addView(label(caption, 10f, 0xFF9FC8FF.toInt()))
+                card.addView(value)
+                return card
+            }
+
+            val metricsRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+            }
+            fun metricValue(initial: String): TextView = label(initial, 19f, Color.WHITE).apply {
+                gravity = Gravity.CENTER
+                setPadding(0, dp(2), 0, 0)
+            }
+            cpuMetricView = metricValue("…")
+            gpuMetricView = metricValue("…")
+            ramMetricView = metricValue("…")
+            listOf(
+                metricCard("CPU", cpuMetricView!!),
+                metricCard("GPU", gpuMetricView!!),
+                metricCard("RAM", ramMetricView!!)
+            ).forEach { card ->
+                metricsRow.addView(card, LinearLayout.LayoutParams(0, dp(66), 1f).apply {
+                    setMargins(dp(2), dp(2), dp(2), dp(7))
+                })
+            }
+            voiceLayout.addView(metricsRow)
+
+            val voiceCard = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(8), dp(8), dp(8), dp(9))
+                background = surface(0xF21A293A.toInt(), 0xFF405F7D.toInt(), 16)
+            }
+            voiceLayout.addView(voiceCard)
+
+            val voiceHeader = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            val voiceIcon = TextView(this).apply {
+                text = "🎙"
+                textSize = 18f
+                setTextColor(0xFF6EC9FF.toInt())
+                setPadding(dp(2), 0, dp(5), 0)
+            }
+            voiceHeader.addView(voiceIcon)
+            voiceHeader.addView(label("VOICE CHANGER", 14f, 0xFF9FD9FF.toInt()),
+                LinearLayout.LayoutParams(0, dp(42), 1f))
+            val enableSwitch = Switch(this).apply {
+                text = "Enable"
+                textSize = 11f
+                setTextColor(Color.WHITE)
+                isChecked = settings.enabled
+            }
+            voiceHeader.addView(enableSwitch)
+            voiceCard.addView(voiceHeader)
+
+            voiceCard.addView(label(
+                "Voice effects and tuning for Promax Voice Studio",
+                10f, 0xFF9DAEC3.toInt()
+            ))
+
+            val controls = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+            }
+            voiceCard.addView(controls)
+
+            val presetTitle = label("VOICE PRESETS", 11f, 0xFF9FC8FF.toInt())
+            controls.addView(presetTitle)
+            val presetButtons = linkedMapOf<VoiceEffect, TextView>()
+            val presets = listOf(
+                VoiceEffect.ROBOT, VoiceEffect.CHILD, VoiceEffect.ALIEN,
+                VoiceEffect.MONSTER, VoiceEffect.HELIUM, VoiceEffect.DEMON,
+                VoiceEffect.ECHO, VoiceEffect.OLD_MAN, VoiceEffect.UNDERWATER,
+                VoiceEffect.CLEAN
+            )
+            fun effectIcon(effect: VoiceEffect): String = when (effect) {
+                VoiceEffect.ROBOT -> "🤖"
+                VoiceEffect.CHILD -> "🧒"
+                VoiceEffect.ALIEN -> "👽"
+                VoiceEffect.MONSTER -> "👹"
+                VoiceEffect.HELIUM -> "🎈"
+                VoiceEffect.DEMON -> "😈"
+                VoiceEffect.ECHO -> "🔊"
+                VoiceEffect.OLD_MAN -> "👴"
+                VoiceEffect.UNDERWATER -> "🌊"
+                VoiceEffect.CLEAN -> "🎙"
+            }
+            presets.chunked(3).forEach { rowEffects ->
+                val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                rowEffects.forEach { effect ->
+                    val tile = TextView(this).apply {
+                        text = effectIcon(effect) + "\n" + effect.title.uppercase()
+                        textSize = 10f
+                        gravity = Gravity.CENTER
+                        setTextColor(Color.WHITE)
+                        setPadding(dp(2), dp(5), dp(2), dp(5))
+                        background = surface(0xFF24364A.toInt(), 0xFF344A62.toInt(), 12)
+                        isClickable = true
+                        isFocusable = true
+                    }
+                    presetButtons[effect] = tile
+                    tile.setOnClickListener {
+                        if (!settings.enabled) return@setOnClickListener
+                        tile.animate().scaleX(0.94f).scaleY(0.94f).setDuration(75).withEndAction {
+                            tile.animate().scaleX(1f).scaleY(1f).setDuration(110).start()
+                        }.start()
+                        settings = VoiceControlStore.withPreset(settings, effect)
+                        VoiceControlStore.save(this@GameAssistantService, settings)
+                        refreshControls()
+                    }
+                    row.addView(tile, LinearLayout.LayoutParams(0, dp(57), 1f).apply {
+                        setMargins(dp(2), dp(3), dp(2), dp(3))
+                    })
+                }
+                if (rowEffects.size < 3) {
+                    repeat(3 - rowEffects.size) {
+                        row.addView(View(this), LinearLayout.LayoutParams(0, dp(57), 1f))
+                    }
+                }
+                controls.addView(row)
+            }
+
+            fun addSlider(
+                title: String,
+                minimum: Float,
+                maximum: Float,
+                initial: Float,
+                format: (Float) -> String,
+                onChanged: (Float) -> Unit
+            ): Pair<SeekBar, TextView> {
+                val valueLabel = label(title + ": " + format(initial), 11f, Color.WHITE)
+                controls.addView(valueLabel)
+                val bar = SeekBar(this).apply {
+                    max = 200
+                    progress = (((initial - minimum) / (maximum - minimum)) * 200f)
+                        .toInt().coerceIn(0, 200)
+                    setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                         override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                             val value = minimum + (maximum - minimum) * progress / 200f
                             valueLabel.text = title + ": " + format(value)
-                            if (fromUser) onChanged(value)
+                            if (fromUser && settings.enabled) onChanged(value)
                         }
                         override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
                         override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
                     })
                 }
-                voiceLayout.addView(bar, LinearLayout.LayoutParams(-1, dp(42)))
+                controls.addView(bar, LinearLayout.LayoutParams(-1, dp(38)))
                 return bar to valueLabel
             }
 
             val pitchControl = addSlider(
-                "Pitch", -12f, 12f, settings.pitchSemitones,
-                { String.format("%.1f semitones", it) }
+                "PITCH (±12 semitones)", -12f, 12f, settings.pitchSemitones,
+                { String.format("%.1f", it) }
             ) { value ->
                 settings = settings.copy(pitchSemitones = value)
                 VoiceControlStore.save(this@GameAssistantService, settings)
             }
             val formantControl = addSlider(
-                "Formant", -8f, 8f, settings.formantSemitones,
+                "FORMANT", -8f, 8f, settings.formantSemitones,
                 { String.format("%.1f semitones", it) }
             ) { value ->
                 settings = settings.copy(formantSemitones = value)
                 VoiceControlStore.save(this@GameAssistantService, settings)
             }
             val gateControl = addSlider(
-                "Noise gate", -80f, -20f, settings.noiseGateDb,
-                { if (it <= -79.5f) "Off" else String.format("%.0f dB", it) }
+                "NOISE GATE", -80f, -20f, settings.noiseGateDb,
+                { if (it <= -79.5f) "OFF" else String.format("%.0f dB", it) }
             ) { value ->
                 settings = settings.copy(noiseGateDb = value)
                 VoiceControlStore.save(this@GameAssistantService, settings)
@@ -393,7 +506,7 @@ class GameAssistantService : Service() {
 
             val suppression = Switch(this).apply {
                 text = "Device noise suppression"
-                textSize = 12f
+                textSize = 11f
                 setTextColor(Color.WHITE)
                 isChecked = settings.systemNoiseSuppression
                 setOnCheckedChangeListener { _, checked ->
@@ -401,7 +514,16 @@ class GameAssistantService : Service() {
                     VoiceControlStore.save(this@GameAssistantService, settings)
                 }
             }
-            voiceLayout.addView(suppression, LinearLayout.LayoutParams(-1, dp(48)))
+            controls.addView(suppression, LinearLayout.LayoutParams(-1, dp(42)))
+
+            fun setControlsEnabled(view: View, enabled: Boolean) {
+                view.isEnabled = enabled
+                if (view is android.view.ViewGroup) {
+                    for (index in 0 until view.childCount) {
+                        setControlsEnabled(view.getChildAt(index), enabled)
+                    }
+                }
+            }
 
             fun refreshControls() {
                 pitchControl.first.progress =
@@ -411,51 +533,63 @@ class GameAssistantService : Service() {
                 gateControl.first.progress =
                     (((settings.noiseGateDb + 80f) / 60f) * 200f).toInt().coerceIn(0, 200)
                 suppression.isChecked = settings.systemNoiseSuppression
-                presetButtons.forEach { (effect, button) ->
-                    button.text = (if (settings.effect == effect) "✓ " else "") + effect.title
+                presetButtons.forEach { (effect, tile) ->
+                    tile.background = surface(
+                        if (settings.effect == effect) 0xFF174D70.toInt() else 0xFF24364A.toInt(),
+                        if (settings.effect == effect) 0xFF62C7FF.toInt() else 0xFF344A62.toInt(),
+                        12
+                    )
+                }
+                controls.alpha = if (settings.enabled) 1f else 0.48f
+                setControlsEnabled(controls, settings.enabled)
+                enableSwitch.isChecked = settings.enabled
+            }
+            enableSwitch.setOnCheckedChangeListener { _, checked ->
+                settings = settings.copy(enabled = checked)
+                VoiceControlStore.save(this@GameAssistantService, settings)
+                refreshControls()
+                if (checked) {
+                    Toast.makeText(this@GameAssistantService, "Voice effects enabled for Voice Studio", Toast.LENGTH_SHORT).show()
                 }
             }
 
-            presetButtons.forEach { (effect, button) ->
-                button.setOnClickListener {
-                    settings = VoiceControlStore.withPreset(settings, effect)
-                    VoiceControlStore.save(this@GameAssistantService, settings)
-                    refreshControls()
-                }
-            }
-
-            voiceLayout.addView(label("Saved profiles", 13f, 0xFF9FC8FF.toInt()))
+            voiceCard.addView(label("SAVED VOICE PROFILES", 11f, 0xFF9FC8FF.toInt()))
             val profileContainer = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
             }
-            voiceLayout.addView(profileContainer)
+            voiceCard.addView(profileContainer)
 
             fun renderProfiles() {
                 profileContainer.removeAllViews()
                 val profiles = VoiceProfileStore.list(this@GameAssistantService)
                 if (profiles.isEmpty()) {
-                    profileContainer.addView(label("No saved profiles yet.", 11f, 0xFF9DAEC3.toInt()))
+                    profileContainer.addView(label("No saved profiles yet.", 10f, 0xFF9DAEC3.toInt()))
                     return
                 }
-                profiles.take(12).chunked(2).forEach { pair ->
+                profiles.take(6).chunked(2).forEach { group ->
                     val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-                    pair.forEach { profile ->
-                        val button = Button(this).apply {
+                    group.forEach { profile ->
+                        val item = TextView(this).apply {
                             text = profile.name
                             textSize = 10f
+                            gravity = Gravity.CENTER
+                            setTextColor(Color.WHITE)
+                            background = surface(0xFF24364A.toInt(), 0xFF344A62.toInt(), 10)
+                            setPadding(dp(4), dp(7), dp(4), dp(7))
                             setOnClickListener {
                                 settings = VoiceControlSettings(
                                     effect = profile.effect,
                                     pitchSemitones = profile.pitchSemitones,
                                     formantSemitones = profile.formantSemitones,
                                     noiseGateDb = profile.noiseGateDb,
-                                    systemNoiseSuppression = profile.systemNoiseSuppression
+                                    systemNoiseSuppression = profile.systemNoiseSuppression,
+                                    enabled = settings.enabled
                                 )
                                 VoiceControlStore.save(this@GameAssistantService, settings)
                                 refreshControls()
                             }
                         }
-                        row.addView(button, LinearLayout.LayoutParams(0, dp(42), 1f).apply {
+                        row.addView(item, LinearLayout.LayoutParams(0, dp(38), 1f).apply {
                             setMargins(dp(2), dp(2), dp(2), dp(2))
                         })
                     }
@@ -466,142 +600,122 @@ class GameAssistantService : Service() {
 
             val profileName = EditText(this).apply {
                 setSingleLine(true)
-                textSize = 12f
+                textSize = 11f
                 hint = "New profile name"
                 setText("Floating voice")
-            }
-            voiceLayout.addView(profileName, LinearLayout.LayoutParams(-1, dp(48)))
-            voiceLayout.addView(Button(this).apply {
-                text = "Save current profile"
-                setOnClickListener {
-                    val name = profileName.text.toString().trim()
-                    if (name.isBlank()) {
-                        profileName.error = "Enter a profile name"
-                    } else {
-                        VoiceProfileStore.save(
-                            this@GameAssistantService,
-                            VoiceProfile(
-                                name,
-                                settings.effect,
-                                settings.pitchSemitones,
-                                settings.formantSemitones,
-                                settings.noiseGateDb,
-                                settings.systemNoiseSuppression
-                            )
-                        )
-                        renderProfiles()
-                        Toast.makeText(this@GameAssistantService, "Voice profile saved", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }, LinearLayout.LayoutParams(-1, dp(46)))
-
-            val status = label("Settings are saved for Promax Voice Studio.", 11f, 0xFF63E0C1.toInt())
-            voiceLayout.addView(status)
-            voiceLayout.addView(label(
-                "Android does not let a normal floating app replace another game's or call app's microphone input. These controls configure Promax Voice Studio recording and local playback; they do not change your voice inside another app.",
-                10f, 0xFFFFC27A.toInt()
-            ))
-            voiceLayout.addView(Button(this).apply {
-                text = "Open Voice Studio"
-                setOnClickListener {
-                    VoiceControlStore.save(this@GameAssistantService, settings)
-                    val intent = Intent(this@GameAssistantService, MainActivity::class.java).apply {
-                        putExtra(MainActivity.EXTRA_OPEN_VOICE_STUDIO, true)
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                    }
-                    startActivity(intent)
-                }
-            }, LinearLayout.LayoutParams(-1, dp(48)))
-
-            refreshControls()
-        }
-
-        fun addBrowser() {
-            content.removeAllViews()
-            metricsView = null
-            val browserLayout = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-            }
-            val addressRow = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-            }
-            val address = EditText(this).apply {
-                textSize = 12f
-                setSingleLine(true)
-                hint = "https://example.com"
-                setText("https://")
                 setTextColor(Color.WHITE)
             }
-            val go = Button(this).apply { text = "Go" }
-            addressRow.addView(address, LinearLayout.LayoutParams(0, dp(52), 1f))
-            addressRow.addView(go, LinearLayout.LayoutParams(dp(68), dp(52)))
-            browserLayout.addView(addressRow)
-
-            val web = WebView(this).apply {
-                settings.javaScriptEnabled = false
-                settings.domStorageEnabled = false
-                settings.allowFileAccess = false
-                settings.allowContentAccess = false
-                settings.loadsImagesAutomatically = true
-                settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
-                if (Build.VERSION.SDK_INT >= 26) settings.safeBrowsingEnabled = true
-                webViewClient = object : WebViewClient() {
-                    override fun shouldOverrideUrlLoading(
-                        view: WebView,
-                        request: WebResourceRequest
-                    ): Boolean {
-                        val scheme = request.url.scheme?.lowercase()
-                        return scheme != "https"
-                    }
-
-                    @Suppress("DEPRECATION")
-                    override fun shouldOverrideUrlLoading(view: WebView, url: String): Boolean {
-                        return !url.startsWith("https://", ignoreCase = true)
-                    }
-                }
-            }
-            browser = web
-            go.setOnClickListener {
-                var url = address.text.toString().trim()
-                if (url.isNotBlank() && !url.startsWith("https://", true)) {
-                    url = "https://" + url.removePrefix("http://")
-                }
-                val uri = runCatching { Uri.parse(url) }.getOrNull()
-                if (uri?.scheme == "https" && !uri.host.isNullOrBlank()) {
-                    address.setText(url)
-                    web.loadUrl(url)
+            voiceCard.addView(profileName, LinearLayout.LayoutParams(-1, dp(42)))
+            voiceCard.addView(actionButton("SAVE CURRENT PROFILE") {
+                val name = profileName.text.toString().trim()
+                if (name.isBlank()) {
+                    profileName.error = "Enter a profile name"
                 } else {
-                    address.error = "HTTPS address required"
+                    VoiceProfileStore.save(
+                        this@GameAssistantService,
+                        VoiceProfile(
+                            name, settings.effect, settings.pitchSemitones,
+                            settings.formantSemitones, settings.noiseGateDb,
+                            settings.systemNoiseSuppression
+                        )
+                    )
+                    renderProfiles()
+                    Toast.makeText(this@GameAssistantService, "Voice profile saved", Toast.LENGTH_SHORT).show()
+                }
+            })
+
+            voiceLayout.addView(label(
+                "QUICK TOOLS", 11f, 0xFF9FC8FF.toInt()
+            ))
+            val actionRows = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            fun actionRow(first: Pair<String, () -> Unit>, second: Pair<String, () -> Unit>) {
+                val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                row.addView(actionButton(first.first, first.second), LinearLayout.LayoutParams(0, dp(54), 1f).apply {
+                    setMargins(dp(2), dp(3), dp(2), dp(3))
+                })
+                row.addView(actionButton(second.first, second.second), LinearLayout.LayoutParams(0, dp(54), 1f).apply {
+                    setMargins(dp(2), dp(3), dp(2), dp(3))
+                })
+                actionRows.addView(row)
+            }
+
+            val prefs = getSharedPreferences("promax_settings", MODE_PRIVATE)
+            actionRow("📞  BLOCK CALLS" to {
+                if (!PermissionTools.hasNotificationPolicyAccess(this@GameAssistantService)) {
+                    PermissionTools.openNotificationPolicySettings(this@GameAssistantService)
+                } else {
+                    val next = !prefs.getBoolean("silence_calls", false)
+                    if (DndController.silenceCalls(this@GameAssistantService, next)) {
+                        prefs.edit().putBoolean("silence_calls", next).apply()
+                        Toast.makeText(this@GameAssistantService, if (next) "Call alerts silenced" else "Call alerts restored", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }, "🔕  BLOCK NOTIFS" to {
+                if (!PermissionTools.hasNotificationListenerAccess(this@GameAssistantService)) {
+                    PermissionTools.openNotificationListenerSettings(this@GameAssistantService)
+                } else {
+                    val next = !prefs.getBoolean("block_notifications", false)
+                    prefs.edit().putBoolean("block_notifications", next).apply()
+                    Toast.makeText(this@GameAssistantService, if (next) "Notification blocking enabled" else "Notification blocking disabled", Toast.LENGTH_SHORT).show()
+                }
+            })
+            actionRow("🧹  CLEAR RAM" to {
+                cacheDir.listFiles()?.forEach { it.deleteRecursively() }
+                externalCacheDir?.listFiles()?.forEach { it.deleteRecursively() }
+                Toast.makeText(this@GameAssistantService, "Promax temporary cache cleared. Android manages other apps' RAM.", Toast.LENGTH_LONG).show()
+            }, "⚙  SETTINGS" to { addTools() })
+            voiceLayout.addView(actionRows)
+
+            voiceLayout.addView(label(
+                "Android does not let a normal app replace another game's microphone input. These controls apply to Promax Voice Studio recordings and local monitoring.",
+                10f, 0xFFFFC27A.toInt()
+            ))
+            voiceLayout.addView(actionButton("OPEN VOICE STUDIO") {
+                val intent = Intent(this@GameAssistantService, MainActivity::class.java).apply {
+                    putExtra(MainActivity.EXTRA_OPEN_VOICE_STUDIO, true)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                }
+                startActivity(intent)
+            }, LinearLayout.LayoutParams(-1, dp(46)))
+
+            refreshControls()
+            refreshMetrics()
+            scroll.alpha = 0f
+            scroll.translationY = dp(12).toFloat()
+            scroll.animate().alpha(1f).translationY(0f).setDuration(220).start()
+        }
+
+        fun actionButton(title: String, onClick: () -> Unit): TextView =
+            TextView(this).apply {
+                text = title
+                textSize = 10f
+                gravity = Gravity.CENTER
+                setTextColor(Color.WHITE)
+                setPadding(dp(5), dp(6), dp(5), dp(6))
+                background = surface(0xFF203349.toInt(), 0xFF3A5875.toInt(), 12)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    animate().scaleX(0.96f).scaleY(0.96f).setDuration(65).withEndAction {
+                        animate().scaleX(1f).scaleY(1f).setDuration(95).start()
+                        onClick()
+                    }.start()
                 }
             }
-            browserLayout.addView(web, LinearLayout.LayoutParams(-1, 0, 1f))
+
+
             content.addView(browserLayout)
         }
 
-        toolsTab.setOnClickListener {
-            toolsTab.isSelected = true
-            voiceTab.isSelected = false
-            browserTab.isSelected = false
-            addTools()
-        }
-        voiceTab.setOnClickListener {
-            toolsTab.isSelected = false
-            voiceTab.isSelected = true
-            browserTab.isSelected = false
-            addVoice()
-        }
-        browserTab.setOnClickListener {
-            toolsTab.isSelected = false
-            voiceTab.isSelected = false
-            browserTab.isSelected = true
-            addBrowser()
-        }
-        addTools()
+        toolsTab.setOnClickListener { addTools() }
+        voiceTab.setOnClickListener { addVoice() }
+        browserTab.setOnClickListener { addBrowser() }
+        close.setOnClickListener { removePanel() }
+        addVoice()
 
         val layout = WindowManager.LayoutParams(
-            minOf((resources.displayMetrics.widthPixels * 0.88f).toInt(), dp(420)),
-            (resources.displayMetrics.heightPixels * 0.78f).toInt(),
+            minOf((resources.displayMetrics.widthPixels * 0.84f).toInt(), dp(380)),
+            (resources.displayMetrics.heightPixels * 0.84f).toInt(),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
@@ -668,6 +782,9 @@ class GameAssistantService : Service() {
         panel = null
         panelParams = null
         metricsView = null
+        cpuMetricView = null
+        gpuMetricView = null
+        ramMetricView = null
     }
 
     private fun removeHandle() {

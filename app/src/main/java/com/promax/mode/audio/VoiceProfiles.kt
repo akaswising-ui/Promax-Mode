@@ -12,7 +12,9 @@ enum class VoiceEffect(val id: Int, val title: String) {
     ECHO(4, "Echo"),
     CHILD(5, "Child"),
     OLD_MAN(6, "Old man"),
-    UNDERWATER(7, "Underwater");
+    UNDERWATER(7, "Underwater"),
+    HELIUM(8, "Helium"),
+    DEMON(9, "Demon");
 
     companion object {
         fun fromId(id: Int): VoiceEffect = entries.firstOrNull { it.id == id } ?: CLEAN
@@ -101,7 +103,8 @@ data class VoiceControlSettings(
     val pitchSemitones: Float = 0f,
     val formantSemitones: Float = 0f,
     val noiseGateDb: Float = -80f,
-    val systemNoiseSuppression: Boolean = true
+    val systemNoiseSuppression: Boolean = true,
+    val enabled: Boolean = true
 )
 
 object VoiceControlStore {
@@ -114,7 +117,8 @@ object VoiceControlStore {
             pitchSemitones = prefs.getFloat("pitch", 0f).coerceIn(-12f, 12f),
             formantSemitones = prefs.getFloat("formant", 0f).coerceIn(-8f, 8f),
             noiseGateDb = prefs.getFloat("gate", -80f).coerceIn(-80f, -20f),
-            systemNoiseSuppression = prefs.getBoolean("noise_suppression", true)
+            systemNoiseSuppression = prefs.getBoolean("noise_suppression", true),
+            enabled = prefs.getBoolean("voice_enabled", true)
         )
     }
 
@@ -125,6 +129,7 @@ object VoiceControlStore {
             .putFloat("formant", settings.formantSemitones.coerceIn(-8f, 8f))
             .putFloat("gate", settings.noiseGateDb.coerceIn(-80f, -20f))
             .putBoolean("noise_suppression", settings.systemNoiseSuppression)
+            .putBoolean("voice_enabled", settings.enabled)
             .apply()
     }
 
@@ -134,6 +139,8 @@ object VoiceControlStore {
             VoiceEffect.OLD_MAN -> -4.5f to -2.5f
             VoiceEffect.UNDERWATER -> 0f to -1.5f
             VoiceEffect.MONSTER -> -3f to -3f
+            VoiceEffect.HELIUM -> 7.5f to 4.5f
+            VoiceEffect.DEMON -> -7f to -5.5f
             else -> 0f to 0f
         }
         return base.copy(effect = effect, pitchSemitones = values.first, formantSemitones = values.second)

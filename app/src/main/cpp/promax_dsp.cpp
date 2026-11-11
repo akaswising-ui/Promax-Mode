@@ -168,6 +168,12 @@ Java_com_promax_mode_audio_NativeDsp_process(
                 g_lowPassState += 0.075f * (sample - g_lowPassState);
                 sample = g_lowPassState * (0.9f + 0.1f * std::sin(g_modulationPhase * 2.0f * kPi));
                 break;
+            case 8: // Helium: preset pitch/formant lift plus a light cartoon vibrato
+                sample *= 0.86f + 0.14f * std::sin(g_modulationPhase * 8.0f * kPi);
+                break;
+            case 9: // Demon: deeper preset pitch/formant with stronger saturation
+                sample = std::tanh(sample / 4500.0f) * 28000.0f;
+                break;
             default:
                 break;
         }

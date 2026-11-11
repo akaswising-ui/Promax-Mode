@@ -623,6 +623,7 @@ private fun VoiceStudioScreen() {
     var formant by remember { mutableStateOf(initialControls.formantSemitones) }
     var noiseGate by remember { mutableStateOf(initialControls.noiseGateDb) }
     var noiseSuppression by remember { mutableStateOf(initialControls.systemNoiseSuppression) }
+    var effectsEnabled by remember { mutableStateOf(initialControls.enabled) }
     var recording by remember { mutableStateOf(false) }
     var lastWav by remember { mutableStateOf<File?>(null) }
     var status by remember { mutableStateOf("Ready") }
@@ -637,7 +638,7 @@ private fun VoiceStudioScreen() {
     fun persistVoiceControls() {
         VoiceControlStore.save(
             context,
-            VoiceControlSettings(effect, pitch, formant, noiseGate, noiseSuppression)
+            VoiceControlSettings(effect, pitch, formant, noiseGate, noiseSuppression, effectsEnabled)
         )
     }
 
@@ -651,7 +652,7 @@ private fun VoiceStudioScreen() {
 
     fun applyEffect(selected: VoiceEffect) {
         val next = VoiceControlStore.withPreset(
-            VoiceControlSettings(effect, pitch, formant, noiseGate, noiseSuppression),
+            VoiceControlSettings(effect, pitch, formant, noiseGate, noiseSuppression, effectsEnabled),
             selected
         )
         effect = next.effect
@@ -662,11 +663,11 @@ private fun VoiceStudioScreen() {
 
     fun startRecording() {
         recorder.start(
-            effect = effect,
-            pitchSemitones = pitch,
-            formantSemitones = formant,
-            noiseGateDb = noiseGate,
-            systemNoiseSuppression = noiseSuppression,
+            effect = if (effectsEnabled) effect else VoiceEffect.CLEAN,
+            pitchSemitones = if (effectsEnabled) pitch else 0f,
+            formantSemitones = if (effectsEnabled) formant else 0f,
+            noiseGateDb = if (effectsEnabled) noiseGate else -80f,
+            systemNoiseSuppression = effectsEnabled && noiseSuppression,
             onSaved = {
                 recording = false
                 lastWav = it
