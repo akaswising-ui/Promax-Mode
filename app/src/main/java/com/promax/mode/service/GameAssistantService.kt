@@ -148,8 +148,10 @@ class GameAssistantService : Service() {
                     packageManager.getApplicationLabel(packageManager.getApplicationInfo(foreground, 0)).toString().uppercase()
                 }.getOrDefault(foreground.substringAfterLast(".").uppercase())
                 showEdgeHandle()
-                if (getSharedPreferences("promax_settings", MODE_PRIVATE).getBoolean("eye_filter_enabled", false)) {
-                    applyEyeFilter()
+                val savedFilter = getSharedPreferences("promax_settings", MODE_PRIVATE)
+                    .getString("game_filter", "OFF") ?: "OFF"
+                if (savedFilter != "OFF") {
+                    applyGameFilter(savedFilter, false)
                 } else {
                     removeEyeFilter()
                 }
@@ -624,6 +626,8 @@ class GameAssistantService : Service() {
                             }
                         }.getOrElse { "FPS_UNAVAILABLE: connect Shizuku" }
                         handler.post {
+                            overlayFpsStatus = result.removePrefix("FPS=").removePrefix("FPS_UNAVAILABLE:").trim().take(24)
+                            refreshMetrics()
                             val current = liveMetrics.text.toString()
                             liveMetrics.text = current.substringBefore("\n") + "\n" + result
                         }
@@ -638,6 +642,8 @@ class GameAssistantService : Service() {
                         ShizukuController.getGpuUsage()
                     }.getOrElse { "GPU_UNAVAILABLE: connect Shizuku" }
                     handler.post {
+                        overlayGpuStatus = result.removePrefix("GPU_DEVICE_WIDE=").removePrefix("GPU_UNAVAILABLE:").trim().take(24)
+                        refreshMetrics()
                         Toast.makeText(this@GameAssistantService, result, Toast.LENGTH_LONG).show()
                     }
                 }.start()
@@ -1037,7 +1043,7 @@ class GameAssistantService : Service() {
     }
 
     private fun applyEyeFilter() {
-        applyGameFilter("WARM")
+        applyGameFilter("WARM", false)
     }
 
     /**
@@ -1045,10 +1051,12 @@ class GameAssistantService : Service() {
      * pipeline. They are presented as display tints to avoid claiming a
      * per-game renderer effect that a normal overlay cannot provide.
      */
-    private fun applyGameFilter(filter: String) {
+    private fun applyGameFilter(filter: String, persist: Boolean = true) {
         val normalized = filter.uppercase()
-        getSharedPreferences("promax_settings", MODE_PRIVATE)
-            .edit().putString("game_filter", normalized).putBoolean("eye_filter_enabled", normalized != "OFF").apply()
+        if (persist) {
+            getSharedPreferences("promax_settings", MODE_PRIVATE)
+                .edit().putString("game_filter", normalized).putBoolean("eye_filter_enabled", normalized != "OFF").apply()
+        }
         if (normalized == "OFF") {
             removeEyeFilter()
             return
