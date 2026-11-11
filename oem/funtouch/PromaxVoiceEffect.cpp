@@ -149,10 +149,14 @@ std::shared_ptr<EffectContext> PromaxVoiceEffect::createContext(
             common.input.base.channelMask);
     const auto outputChannels = ::aidl::android::hardware::audio::common::getChannelCount(
             common.output.base.channelMask);
-    const int sampleRate = static_cast<int>(common.input.base.sampleRate);
+    const int inputSampleRate = static_cast<int>(common.input.base.sampleRate);
+    const int outputSampleRate = static_cast<int>(common.output.base.sampleRate);
+    const bool compatible = inputChannels == outputChannels &&
+            inputSampleRate == outputSampleRate && inputChannels <= 2 &&
+            inputSampleRate >= 8000;
     mContext->configure(
-            inputChannels == outputChannels ? sampleRate : 0,
-            inputChannels == outputChannels ? static_cast<int>(inputChannels) : 0);
+            compatible ? inputSampleRate : 0,
+            compatible ? static_cast<int>(inputChannels) : 0);
     return mContext;
 }
 
