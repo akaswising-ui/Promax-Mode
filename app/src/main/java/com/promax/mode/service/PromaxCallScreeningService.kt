@@ -5,7 +5,7 @@ import android.telecom.Call
 import android.telecom.CallScreeningService
 
 /**
- * Optional unknown-number screening. Android only binds this service after
+ * Optional incoming-call screening. Android only binds this service after
  * the user grants Promax the Call Screening role.
  */
 class PromaxCallScreeningService : CallScreeningService() {
