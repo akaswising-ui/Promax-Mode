@@ -3,18 +3,14 @@ package com.promax.mode
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.PackageManager
 import android.net.TrafficStats
 import android.os.BatteryManager
 import android.os.SystemClock
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -39,7 +35,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -303,19 +298,18 @@ internal fun GameModeHomeScreen(
                                         if (started == "CAPTURE_STARTED") {
                                             fpsStatus = "Measuring..."
                                             var finalStatus = "Layer not found"
-                                            repeat(6) {
+                                            var measuredFps: String? = null
+                                            for (attempt in 0 until 6) {
                                                 delay(850)
                                                 val read = withContext(Dispatchers.IO) { ShizukuController.dumpFrameStats(target) }
                                                 if (read.startsWith("FPS=")) {
-                                                    fpsStatus = read.removePrefix("FPS=").trim()
-                                                    finalStatus = ""
-                                                    return@repeat
+                                                    measuredFps = read.removePrefix("FPS=").trim()
+                                                    break
                                                 }
                                                 finalStatus = read.removePrefix("FPS_UNAVAILABLE:").trim()
                                             }
-                                            if (finalStatus.isNotBlank()) {
-                                                fpsStatus = if (finalStatus.contains("no matching", true)) "Retry with game open" else finalStatus.take(35)
-                                            }
+                                            fpsStatus = measuredFps
+                                                ?: if (finalStatus.contains("no matching", true)) "Retry with game open" else finalStatus.take(35)
                                         } else {
                                             fpsStatus = started.take(42)
                                         }
@@ -475,7 +469,6 @@ private fun GameActionTile(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val pressedScale by animateFloatAsState(targetValue = 1f, label = "gameTileScale")
     Surface(
         modifier = modifier.animateContentSize().clickable(onClick = onClick),
         color = gamePanel,
