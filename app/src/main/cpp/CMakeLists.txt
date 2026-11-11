@@ -9,6 +9,6 @@ file(GLOB SHINE_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/shine/*.c
 add_library(shine SHARED ${SHINE_SOURCES})
 target_include_directories(shine PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/shine")
 
-add_library(promax_dsp SHARED promax_dsp.cpp)
+add_library(promax_dsp SHARED promax_dsp.cpp PromaxVoiceDsp.cpp)
 find_library(log-lib log)
 target_link_libraries(promax_dsp PRIVATE shine ${log-lib} m)
