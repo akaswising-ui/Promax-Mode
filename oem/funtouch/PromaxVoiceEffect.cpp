@@ -57,6 +57,11 @@ const Descriptor PromaxVoiceEffect::kDescriptor = {
     .capability = {},
 };
 
+void PromaxVoiceEffectContext::configure(int sampleRate, int channelCount) noexcept {
+    mSampleRate = sampleRate;
+    mChannelCount = channelCount;
+}
+
 bool PromaxVoiceEffectContext::setParams(const std::vector<uint8_t>& bytes) {
     if (bytes.size() != kControlBytes) return false;
 
@@ -74,6 +79,7 @@ bool PromaxVoiceEffectContext::setParams(const std::vector<uint8_t>& bytes) {
     next.pitchSemitones = std::clamp(next.pitchSemitones, -12.0f, 12.0f);
     next.formantSemitones = std::clamp(next.formantSemitones, -8.0f, 8.0f);
     next.noiseGateDb = std::clamp(next.noiseGateDb, -80.0f, -20.0f);
+    if (next.enabled == 0 && mControl.enabled != 0) mDsp.reset();
     mControl = next;
     return true;
 }
@@ -139,6 +145,14 @@ std::shared_ptr<EffectContext> PromaxVoiceEffect::createContext(
     if (!mContext) {
         mContext = std::make_shared<PromaxVoiceEffectContext>(1 /* status FMQ depth */, common);
     }
+    const auto inputChannels = ::aidl::android::hardware::audio::common::getChannelCount(
+            common.input.base.channelMask);
+    const auto outputChannels = ::aidl::android::hardware::audio::common::getChannelCount(
+            common.output.base.channelMask);
+    const int sampleRate = static_cast<int>(common.input.base.sampleRate);
+    mContext->configure(
+            inputChannels == outputChannels ? sampleRate : 0,
+            inputChannels == outputChannels ? static_cast<int>(inputChannels) : 0);
     return mContext;
 }
 
@@ -160,18 +174,11 @@ IEffect::Status PromaxVoiceEffect::effectProcessImpl(
     const auto& control = mContext->control();
     if (control.enabled == 0) return {STATUS_OK, samples, samples};
 
-    const auto common = mContext->getCommon();
-    const auto inputChannels =
-            ::aidl::android::hardware::audio::common::getChannelCount(
-                    common.input.base.channelMask);
-    const auto outputChannels =
-            ::aidl::android::hardware::audio::common::getChannelCount(
-                    common.output.base.channelMask);
-    const int sampleRate = static_cast<int>(common.input.base.sampleRate);
+    const int inputChannels = mContext->channelCount();
+    const int sampleRate = mContext->sampleRate();
 
-    if (inputChannels == 0 || inputChannels > 2 ||
-        inputChannels != outputChannels || sampleRate < 8000 ||
-        samples % static_cast<int>(inputChannels) != 0) {
+    if (inputChannels < 1 || inputChannels > 2 || sampleRate < 8000 ||
+        samples % inputChannels != 0) {
         return {STATUS_OK, samples, samples};
     }
 
@@ -183,8 +190,8 @@ IEffect::Status PromaxVoiceEffect::effectProcessImpl(
 
     mContext->dsp().process(
             output,
-            static_cast<size_t>(samples) / inputChannels,
-            static_cast<int>(inputChannels),
+            static_cast<size_t>(samples) / static_cast<size_t>(inputChannels),
+            inputChannels,
             sampleRate,
             parameters);
     return {STATUS_OK, samples, samples};
