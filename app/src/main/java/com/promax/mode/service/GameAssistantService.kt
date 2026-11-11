@@ -149,7 +149,7 @@ class GameAssistantService : Service() {
                 }.getOrDefault(foreground.substringAfterLast(".").uppercase())
                 showEdgeHandle()
                 val savedFilter = getSharedPreferences("promax_settings", MODE_PRIVATE)
-                    .getString("game_filter", "OFF") ?: "OFF"
+                    .getString("game_filter", if (getSharedPreferences("promax_settings", MODE_PRIVATE).getBoolean("eye_filter_enabled", false)) "WARM" else "OFF") ?: "OFF"
                 if (savedFilter != "OFF") {
                     applyGameFilter(savedFilter, false)
                 } else {
@@ -190,7 +190,10 @@ class GameAssistantService : Service() {
         if (intent?.action == ACTION_SET_EYE_FILTER) {
             val enabled = intent.getBooleanExtra(EXTRA_EYE_FILTER_ENABLED, false)
             getSharedPreferences("promax_settings", MODE_PRIVATE)
-                .edit().putBoolean("eye_filter_enabled", enabled).apply()
+                .edit()
+                .putBoolean("eye_filter_enabled", enabled)
+                .putString("game_filter", if (enabled) "WARM" else "OFF")
+                .apply()
             if (enabled) applyEyeFilter() else removeEyeFilter()
         }
         handler.removeCallbacks(pollTask)
