@@ -5,18 +5,22 @@ Promax Mode is an Android Game Space prototype with a user-started game overlay,
 ## Current build
 
 - Android application: Kotlin + Jetpack Compose
-- Minimum Android version: Android 8.0 (API 26)
+- Java: settings-intent compatibility bridge
+- Android Gradle Plugin: 9.3.1
+- Gradle: 9.5.0
+- Kotlin / Compose compiler plugin: 2.4.21
 - Compile SDK: 37
 - Target SDK: 36
-- UI: dark dashboard, Game Library, Voice Studio, Permissions
-- Java: settings-intent compatibility bridge
+- Minimum Android version: Android 8.0 (API 26)
 - Voice processing: Kotlin PCM pipeline; native C++ is not required for this first pass
+
+The build versions use the documented AGP 9.3 / Gradle 9.5 pairing and Kotlin 2.4.21's supported AGP range.
 
 ## Features in this first source drop
 
 1. Add launcher apps to a persistent game list. The auto-detect hint uses Android app category and app labels; it is not a perfect game classifier.
 2. Start a foreground service from the dashboard. It watches Usage Access events and displays a draggable overlay only when a selected game is in the foreground.
-3. Show system-wide CPU activity estimate and RAM usage from public Android APIs.
+3. Show system CPU activity estimate and RAM usage from public Android APIs.
 4. Open notification-listener and Do Not Disturb settings. When granted, the overlay can dismiss ordinary notifications and silence call interruptions using DND.
 5. Save a quick note in the overlay.
 6. Record microphone audio inside Promax and monitor Clean, Robot, Alien, Monster or Echo processing. Output is a WAV file in the app's external files Music directory.
@@ -24,14 +28,14 @@ Promax Mode is an Android Game Space prototype with a user-started game overlay,
 
 ## Build
 
-Open the repository in a recent Android Studio version that supports AGP 9.5 and Android SDK 37. Install Android SDK platform/build tools for API 37, sync Gradle and run the app configuration.
+Open the repository in Android Studio with Android SDK Platform 37 installed, sync Gradle and run the app configuration.
 
-Command line, after installing Android SDK and Gradle 9.6:
+Command line (after installing Android SDK and Gradle 9.5.0):
 
     gradle assembleDebug
     gradle testDebugUnitTest
 
-The GitHub Actions workflow builds a debug APK and uploads it as a workflow artifact. This source commit does not include a compiled APK or signed release build.
+The GitHub Actions workflow builds the debug APK and uploads it as a workflow artifact. This source commit does not include a compiled APK or signed release build.
 
 ## First run
 
