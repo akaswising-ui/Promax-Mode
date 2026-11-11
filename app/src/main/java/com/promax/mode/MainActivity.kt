@@ -154,7 +154,7 @@ private fun PromaxApp(initialTab: AppTab = AppTab.HOME) {
         ) { padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {
                 when (tab) {
-                    AppTab.HOME -> DashboardScreen(
+                    AppTab.HOME -> GameModeHomeScreen(
                         games = games,
                         highRate = highRate,
                         onHighRate = {
@@ -162,7 +162,8 @@ private fun PromaxApp(initialTab: AppTab = AppTab.HOME) {
                             context.getSharedPreferences("promax_settings", Context.MODE_PRIVATE)
                                 .edit().putBoolean("high_monitor_rate", it).apply()
                         },
-                        onAdd = { tab = AppTab.GAMES; showPicker = true }
+                        onAdd = { tab = AppTab.GAMES; showPicker = true },
+                        onVoice = { tab = AppTab.VOICE }
                     )
                     AppTab.GAMES -> GameLibraryScreen(
                         games = games,
