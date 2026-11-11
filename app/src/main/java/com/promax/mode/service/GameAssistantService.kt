@@ -26,8 +26,17 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.SeekBar
+import android.widget.Switch
 import android.widget.TextView
+import android.widget.Toast
 import com.promax.mode.MainActivity
+import com.promax.mode.audio.VoiceControlSettings
+import com.promax.mode.audio.VoiceControlStore
+import com.promax.mode.audio.VoiceEffect
+import com.promax.mode.audio.VoiceProfile
+import com.promax.mode.audio.VoiceProfileStore
 import com.promax.mode.data.GameAppRepository
 import com.promax.mode.monitor.DeviceMetricsReader
 import com.promax.mode.monitor.ForegroundGameDetector
@@ -200,8 +209,10 @@ class GameAssistantService : Service() {
             gravity = Gravity.CENTER
         }
         val toolsTab = Button(this).apply { text = "Tools" }
+        val voiceTab = Button(this).apply { text = "Voice" }
         val browserTab = Button(this).apply { text = "Browser" }
         tabs.addView(toolsTab, LinearLayout.LayoutParams(0, dp(42), 1f))
+        tabs.addView(voiceTab, LinearLayout.LayoutParams(0, dp(42), 1f))
         tabs.addView(browserTab, LinearLayout.LayoutParams(0, dp(42), 1f))
         root.addView(tabs)
 
@@ -280,6 +291,231 @@ class GameAssistantService : Service() {
             content.addView(tools)
         }
 
+
+        fun addVoice() {
+            browser?.stopLoading()
+            browser?.destroy()
+            browser = null
+            metricsView = null
+            content.removeAllViews()
+
+            var settings = VoiceControlStore.load(this@GameAssistantService)
+            val scroll = ScrollView(this).apply { isFillViewport = true }
+            val voiceLayout = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(8), dp(8), dp(8), dp(14))
+            }
+            scroll.addView(voiceLayout)
+            content.addView(scroll)
+
+            fun label(value: String, size: Float = 12f, color: Int = 0xFFE5EDF8.toInt()): TextView {
+                return TextView(this).apply {
+                    text = value
+                    textSize = size
+                    setTextColor(color)
+                    setPadding(dp(2), dp(4), dp(2), dp(4))
+                }
+            }
+
+            voiceLayout.addView(label("VOICE CHANGER", 16f, Color.WHITE))
+            voiceLayout.addView(label(
+                "Choose a preset and tune the sound. Settings are shared with Voice Studio.",
+                11f, 0xFF9DAEC3.toInt()
+            ))
+
+            voiceLayout.addView(label("Voice effects", 13f, 0xFF9FC8FF.toInt()))
+            val presetButtons = linkedMapOf<VoiceEffect, Button>()
+            VoiceEffect.entries.chunked(2).forEach { pair ->
+                val row = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                }
+                pair.forEach { effect ->
+                    val button = Button(this).apply {
+                        text = effect.title
+                        textSize = 11f
+                    }
+                    presetButtons[effect] = button
+                    row.addView(button, LinearLayout.LayoutParams(0, dp(43), 1f).apply {
+                        setMargins(dp(2), dp(2), dp(2), dp(2))
+                    })
+                }
+                voiceLayout.addView(row)
+            }
+
+            fun addSlider(
+                title: String,
+                minimum: Float,
+                maximum: Float,
+                initial: Float,
+                format: (Float) -> String,
+                onChanged: (Float) -> Unit
+            ): Pair<SeekBar, TextView> {
+                val valueLabel = label(title + ": " + format(initial), 12f, Color.WHITE)
+                voiceLayout.addView(valueLabel)
+                val bar = SeekBar(this).apply {
+                    max = 200
+                    progress = (((initial - minimum) / (maximum - minimum)) * 200f).toInt().coerceIn(0, 200)
+                    setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                        override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                            val value = minimum + (maximum - minimum) * progress / 200f
+                            valueLabel.text = title + ": " + format(value)
+                            if (fromUser) onChanged(value)
+                        }
+                        override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+                        override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+                    })
+                }
+                voiceLayout.addView(bar, LinearLayout.LayoutParams(-1, dp(42)))
+                return bar to valueLabel
+            }
+
+            val pitchControl = addSlider(
+                "Pitch", -12f, 12f, settings.pitchSemitones,
+                { String.format("%.1f semitones", it) }
+            ) { value ->
+                settings = settings.copy(pitchSemitones = value)
+                VoiceControlStore.save(this@GameAssistantService, settings)
+            }
+            val formantControl = addSlider(
+                "Formant", -8f, 8f, settings.formantSemitones,
+                { String.format("%.1f semitones", it) }
+            ) { value ->
+                settings = settings.copy(formantSemitones = value)
+                VoiceControlStore.save(this@GameAssistantService, settings)
+            }
+            val gateControl = addSlider(
+                "Noise gate", -80f, -20f, settings.noiseGateDb,
+                { if (it <= -79.5f) "Off" else String.format("%.0f dB", it) }
+            ) { value ->
+                settings = settings.copy(noiseGateDb = value)
+                VoiceControlStore.save(this@GameAssistantService, settings)
+            }
+
+            val suppression = Switch(this).apply {
+                text = "Device noise suppression"
+                textSize = 12f
+                setTextColor(Color.WHITE)
+                isChecked = settings.systemNoiseSuppression
+                setOnCheckedChangeListener { _, checked ->
+                    settings = settings.copy(systemNoiseSuppression = checked)
+                    VoiceControlStore.save(this@GameAssistantService, settings)
+                }
+            }
+            voiceLayout.addView(suppression, LinearLayout.LayoutParams(-1, dp(48)))
+
+            fun refreshControls() {
+                pitchControl.first.progress =
+                    (((settings.pitchSemitones + 12f) / 24f) * 200f).toInt().coerceIn(0, 200)
+                formantControl.first.progress =
+                    (((settings.formantSemitones + 8f) / 16f) * 200f).toInt().coerceIn(0, 200)
+                gateControl.first.progress =
+                    (((settings.noiseGateDb + 80f) / 60f) * 200f).toInt().coerceIn(0, 200)
+                suppression.isChecked = settings.systemNoiseSuppression
+                presetButtons.forEach { (effect, button) ->
+                    button.text = (if (settings.effect == effect) "✓ " else "") + effect.title
+                }
+            }
+
+            presetButtons.forEach { (effect, button) ->
+                button.setOnClickListener {
+                    settings = VoiceControlStore.withPreset(settings, effect)
+                    VoiceControlStore.save(this@GameAssistantService, settings)
+                    refreshControls()
+                }
+            }
+
+            voiceLayout.addView(label("Saved profiles", 13f, 0xFF9FC8FF.toInt()))
+            val profileContainer = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+            }
+            voiceLayout.addView(profileContainer)
+
+            fun renderProfiles() {
+                profileContainer.removeAllViews()
+                val profiles = VoiceProfileStore.list(this@GameAssistantService)
+                if (profiles.isEmpty()) {
+                    profileContainer.addView(label("No saved profiles yet.", 11f, 0xFF9DAEC3.toInt()))
+                    return
+                }
+                profiles.take(12).chunked(2).forEach { pair ->
+                    val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                    pair.forEach { profile ->
+                        val button = Button(this).apply {
+                            text = profile.name
+                            textSize = 10f
+                            setOnClickListener {
+                                settings = VoiceControlSettings(
+                                    effect = profile.effect,
+                                    pitchSemitones = profile.pitchSemitones,
+                                    formantSemitones = profile.formantSemitones,
+                                    noiseGateDb = profile.noiseGateDb,
+                                    systemNoiseSuppression = profile.systemNoiseSuppression
+                                )
+                                VoiceControlStore.save(this@GameAssistantService, settings)
+                                refreshControls()
+                            }
+                        }
+                        row.addView(button, LinearLayout.LayoutParams(0, dp(42), 1f).apply {
+                            setMargins(dp(2), dp(2), dp(2), dp(2))
+                        })
+                    }
+                    profileContainer.addView(row)
+                }
+            }
+            renderProfiles()
+
+            val profileName = EditText(this).apply {
+                setSingleLine(true)
+                textSize = 12f
+                hint = "New profile name"
+                setText("Floating voice")
+            }
+            voiceLayout.addView(profileName, LinearLayout.LayoutParams(-1, dp(48)))
+            voiceLayout.addView(Button(this).apply {
+                text = "Save current profile"
+                setOnClickListener {
+                    val name = profileName.text.toString().trim()
+                    if (name.isBlank()) {
+                        profileName.error = "Enter a profile name"
+                    } else {
+                        VoiceProfileStore.save(
+                            this@GameAssistantService,
+                            VoiceProfile(
+                                name,
+                                settings.effect,
+                                settings.pitchSemitones,
+                                settings.formantSemitones,
+                                settings.noiseGateDb,
+                                settings.systemNoiseSuppression
+                            )
+                        )
+                        renderProfiles()
+                        Toast.makeText(this@GameAssistantService, "Voice profile saved", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }, LinearLayout.LayoutParams(-1, dp(46)))
+
+            val status = label("Settings are saved for Promax Voice Studio.", 11f, 0xFF63E0C1.toInt())
+            voiceLayout.addView(status)
+            voiceLayout.addView(label(
+                "Android does not let a normal floating app replace another game's or call app's microphone input. These controls configure Promax Voice Studio recording and local playback; they do not change your voice inside another app.",
+                10f, 0xFFFFC27A.toInt()
+            ))
+            voiceLayout.addView(Button(this).apply {
+                text = "Open Voice Studio"
+                setOnClickListener {
+                    VoiceControlStore.save(this@GameAssistantService, settings)
+                    val intent = Intent(this@GameAssistantService, MainActivity::class.java).apply {
+                        putExtra(MainActivity.EXTRA_OPEN_VOICE_STUDIO, true)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                    }
+                    startActivity(intent)
+                }
+            }, LinearLayout.LayoutParams(-1, dp(48)))
+
+            refreshControls()
+        }
+
         fun addBrowser() {
             content.removeAllViews()
             metricsView = null
@@ -345,11 +581,19 @@ class GameAssistantService : Service() {
 
         toolsTab.setOnClickListener {
             toolsTab.isSelected = true
+            voiceTab.isSelected = false
             browserTab.isSelected = false
             addTools()
         }
+        voiceTab.setOnClickListener {
+            toolsTab.isSelected = false
+            voiceTab.isSelected = true
+            browserTab.isSelected = false
+            addVoice()
+        }
         browserTab.setOnClickListener {
             toolsTab.isSelected = false
+            voiceTab.isSelected = false
             browserTab.isSelected = true
             addBrowser()
         }

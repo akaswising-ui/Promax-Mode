@@ -93,3 +93,49 @@ object VoiceProfileStore {
             .edit().putString(KEY_PROFILES, array.toString()).apply()
     }
 }
+
+
+/** Settings shared by the floating controller and the full Voice Studio screen. */
+data class VoiceControlSettings(
+    val effect: VoiceEffect = VoiceEffect.ROBOT,
+    val pitchSemitones: Float = 0f,
+    val formantSemitones: Float = 0f,
+    val noiseGateDb: Float = -80f,
+    val systemNoiseSuppression: Boolean = true
+)
+
+object VoiceControlStore {
+    private const val PREFS = "promax_voice_controls"
+
+    fun load(context: Context): VoiceControlSettings {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return VoiceControlSettings(
+            effect = VoiceEffect.fromId(prefs.getInt("effect", VoiceEffect.ROBOT.id)),
+            pitchSemitones = prefs.getFloat("pitch", 0f).coerceIn(-12f, 12f),
+            formantSemitones = prefs.getFloat("formant", 0f).coerceIn(-8f, 8f),
+            noiseGateDb = prefs.getFloat("gate", -80f).coerceIn(-80f, -20f),
+            systemNoiseSuppression = prefs.getBoolean("noise_suppression", true)
+        )
+    }
+
+    fun save(context: Context, settings: VoiceControlSettings) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putInt("effect", settings.effect.id)
+            .putFloat("pitch", settings.pitchSemitones.coerceIn(-12f, 12f))
+            .putFloat("formant", settings.formantSemitones.coerceIn(-8f, 8f))
+            .putFloat("gate", settings.noiseGateDb.coerceIn(-80f, -20f))
+            .putBoolean("noise_suppression", settings.systemNoiseSuppression)
+            .apply()
+    }
+
+    fun withPreset(base: VoiceControlSettings, effect: VoiceEffect): VoiceControlSettings {
+        val values = when (effect) {
+            VoiceEffect.CHILD -> 5f to 3.5f
+            VoiceEffect.OLD_MAN -> -4.5f to -2.5f
+            VoiceEffect.UNDERWATER -> 0f to -1.5f
+            VoiceEffect.MONSTER -> -3f to -3f
+            else -> 0f to 0f
+        }
+        return base.copy(effect = effect, pitchSemitones = values.first, formantSemitones = values.second)
+    }
+}

@@ -67,6 +67,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.promax.mode.audio.NativeMp3
 import com.promax.mode.audio.VoiceEffect
+import com.promax.mode.audio.VoiceControlSettings
+import com.promax.mode.audio.VoiceControlStore
 import com.promax.mode.audio.VoiceProfile
 import com.promax.mode.audio.VoiceProfileStore
 import com.promax.mode.audio.VoiceRecorder
@@ -84,10 +86,19 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
+    companion object {
+        const val EXTRA_OPEN_VOICE_STUDIO = "com.promax.mode.extra.OPEN_VOICE_STUDIO"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ShizukuController.initialize(this)
-        setContent { PromaxApp() }
+        val initialTab = if (intent?.getBooleanExtra(EXTRA_OPEN_VOICE_STUDIO, false) == true) {
+            AppTab.VOICE
+        } else {
+            AppTab.HOME
+        }
+        setContent { PromaxApp(initialTab) }
     }
 
     override fun onDestroy() {
@@ -105,9 +116,9 @@ private val cardColor = Color(0xFF141B26)
 private val mutedText = Color(0xFF9DAEC3)
 
 @Composable
-private fun PromaxApp() {
+private fun PromaxApp(initialTab: AppTab = AppTab.HOME) {
     val context = LocalContext.current
-    var tab by remember { mutableStateOf(AppTab.HOME) }
+    var tab by remember { mutableStateOf(initialTab) }
     var games by remember { mutableStateOf(GameAppRepository.savedPackages(context)) }
     var showPicker by remember { mutableStateOf(false) }
     var highRate by remember {
@@ -606,11 +617,12 @@ private fun VoiceStudioScreen() {
     val context = LocalContext.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val recorder = remember { VoiceRecorder(context) }
-    var effect by remember { mutableStateOf(VoiceEffect.ROBOT) }
-    var pitch by remember { mutableStateOf(0f) }
-    var formant by remember { mutableStateOf(0f) }
-    var noiseGate by remember { mutableStateOf(-80f) }
-    var noiseSuppression by remember { mutableStateOf(true) }
+    val initialControls = remember { VoiceControlStore.load(context) }
+    var effect by remember { mutableStateOf(initialControls.effect) }
+    var pitch by remember { mutableStateOf(initialControls.pitchSemitones) }
+    var formant by remember { mutableStateOf(initialControls.formantSemitones) }
+    var noiseGate by remember { mutableStateOf(initialControls.noiseGateDb) }
+    var noiseSuppression by remember { mutableStateOf(initialControls.systemNoiseSuppression) }
     var recording by remember { mutableStateOf(false) }
     var lastWav by remember { mutableStateOf<File?>(null) }
     var status by remember { mutableStateOf("Ready") }
@@ -622,6 +634,13 @@ private fun VoiceStudioScreen() {
     var ttsText by remember { mutableStateOf("Hello, this is Promax Voice Studio.") }
     var ttsEngine by remember { mutableStateOf<TextToSpeech?>(null) }
 
+    fun persistVoiceControls() {
+        VoiceControlStore.save(
+            context,
+            VoiceControlSettings(effect, pitch, formant, noiseGate, noiseSuppression)
+        )
+    }
+
     fun loadAudioFiles() {
         val music = File(context.getExternalFilesDir(android.os.Environment.DIRECTORY_MUSIC) ?: context.filesDir, "Promax")
         val soundboard = File(music, "Soundboard")
@@ -631,14 +650,14 @@ private fun VoiceStudioScreen() {
     }
 
     fun applyEffect(selected: VoiceEffect) {
-        effect = selected
-        when (selected) {
-            VoiceEffect.CHILD -> { pitch = 5f; formant = 3.5f }
-            VoiceEffect.OLD_MAN -> { pitch = -4.5f; formant = -2.5f }
-            VoiceEffect.UNDERWATER -> { pitch = 0f; formant = -1.5f }
-            VoiceEffect.MONSTER -> { pitch = -3f; formant = -3f }
-            else -> { pitch = 0f; formant = 0f }
-        }
+        val next = VoiceControlStore.withPreset(
+            VoiceControlSettings(effect, pitch, formant, noiseGate, noiseSuppression),
+            selected
+        )
+        effect = next.effect
+        pitch = next.pitchSemitones
+        formant = next.formantSemitones
+        persistVoiceControls()
     }
 
     fun startRecording() {
@@ -760,20 +779,20 @@ private fun VoiceStudioScreen() {
         Card(colors = CardDefaults.cardColors(containerColor = cardColor)) {
             Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("Pitch: " + String.format("%.1f", pitch) + " semitones", fontWeight = FontWeight.Bold)
-                Slider(value = pitch, onValueChange = { pitch = it }, valueRange = -12f..12f)
+                Slider(value = pitch, onValueChange = { pitch = it; persistVoiceControls() }, valueRange = -12f..12f)
                 Text("Formant: " + String.format("%.1f", formant) + " semitones", fontWeight = FontWeight.Bold)
-                Slider(value = formant, onValueChange = { formant = it }, valueRange = -8f..8f)
+                Slider(value = formant, onValueChange = { formant = it; persistVoiceControls() }, valueRange = -8f..8f)
                 Text(
                     if (noiseGate <= -79f) "Noise gate: Off" else "Noise gate threshold: " + String.format("%.0f", noiseGate) + " dB",
                     fontWeight = FontWeight.Bold
                 )
-                Slider(value = noiseGate, onValueChange = { noiseGate = it }, valueRange = -80f..-20f)
+                Slider(value = noiseGate, onValueChange = { noiseGate = it; persistVoiceControls() }, valueRange = -80f..-20f)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("Device noise suppression", fontWeight = FontWeight.Bold)
                         Text("Uses Android NoiseSuppressor when the microphone device supports it.", color = mutedText, fontSize = 11.sp)
                     }
-                    Switch(checked = noiseSuppression, onCheckedChange = { noiseSuppression = it })
+                    Switch(checked = noiseSuppression, onCheckedChange = { noiseSuppression = it; persistVoiceControls() })
                 }
             }
         }
@@ -903,6 +922,7 @@ private fun VoiceStudioScreen() {
                             formant = profile.formantSemitones
                             noiseGate = profile.noiseGateDb
                             noiseSuppression = profile.systemNoiseSuppression
+                            persistVoiceControls()
                         }) { Text("Load") }
                         TextButton(onClick = {
                             VoiceProfileStore.delete(context, profile.name)
