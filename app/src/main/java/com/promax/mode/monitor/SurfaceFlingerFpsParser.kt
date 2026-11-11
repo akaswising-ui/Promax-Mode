@@ -5,8 +5,8 @@ package com.promax.mode.monitor
  * on the same line or that layer labels have no indentation.
  */
 object SurfaceFlingerFpsParser {
-    private val fpsPattern = Regex("""(?i)\\baverageFPS\\s*=\\s*([0-9]+(?:\\.[0-9]+)?)""")
-    private val layerHeaderPattern = Regex("""(?im)^\\s*layerName\\s*=""")
+    private val fpsPattern = Regex("""(?i)\baverageFPS\s*=\s*([0-9]+(?:\.[0-9]+)?)""")
+    private val layerHeaderPattern = Regex("""(?im)^\s*layerName\s*=""")
 
     fun parse(output: String, packageName: String): String? {
         val target = packageName.trim()
@@ -24,7 +24,7 @@ object SurfaceFlingerFpsParser {
 
         for (block in blocks) {
             val packageFieldMatches = Regex(
-                """(?im)^\\s*packageName\\s*=\\s*["']?""" + Regex.escape(target) + """["']?\\s*$"""
+                """(?im)^\s*packageName\s*=\s*["']?""" + Regex.escape(target) + """["']?\s*$"""
             ).containsMatchIn(block)
             val layerMatches = block.contains(target, ignoreCase = true)
             if (!packageFieldMatches && !layerMatches) continue
@@ -39,7 +39,7 @@ object SurfaceFlingerFpsParser {
         // Some Android builds print packageName and the average on a single
         // non-layer block. Accept it only when both are present together.
         val hasPackage = Regex(
-            """(?im)^\\s*packageName\\s*=\\s*["']?""" + Regex.escape(target) + """["']?\\s*$"""
+            """(?im)^\s*packageName\s*=\s*["']?""" + Regex.escape(target) + """["']?\s*$"""
         ).containsMatchIn(output)
         if (hasPackage) {
             val fps = fpsPattern.findAll(output).lastOrNull()?.groupValues?.getOrNull(1)
