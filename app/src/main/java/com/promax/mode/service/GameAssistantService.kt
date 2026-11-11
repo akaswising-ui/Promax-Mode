@@ -140,7 +140,7 @@ class GameAssistantService : Service() {
                     }
                     return true
                 }
-            }
+            })
         }
         val params = WindowManager.LayoutParams(
             dp(34),
@@ -292,7 +292,7 @@ class GameAssistantService : Service() {
             }
             val address = EditText(this).apply {
                 textSize = 12f
-                singleLine = true
+                setSingleLine(true)
                 hint = "https://example.com"
                 setText("https://")
                 setTextColor(Color.WHITE)
