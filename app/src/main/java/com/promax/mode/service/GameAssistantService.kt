@@ -1016,8 +1016,36 @@ class GameAssistantService : Service() {
     }
 
     private fun applyEyeFilter() {
-        if (eyeFilterView != null || !PermissionTools.hasOverlay(this)) return
-        val tint = View(this).apply { setBackgroundColor(0x24FF9A42) }
+        applyGameFilter("WARM")
+    }
+
+    /**
+     * These are lightweight screen tints, not the OEM's GPU color-LUT filter
+     * pipeline. They are presented as display tints to avoid claiming a
+     * per-game renderer effect that a normal overlay cannot provide.
+     */
+    private fun applyGameFilter(filter: String) {
+        val normalized = filter.uppercase()
+        getSharedPreferences("promax_settings", MODE_PRIVATE)
+            .edit().putString("game_filter", normalized).putBoolean("eye_filter_enabled", normalized != "OFF").apply()
+        if (normalized == "OFF") {
+            removeEyeFilter()
+            return
+        }
+        if (!PermissionTools.hasOverlay(this)) return
+
+        val tintColor = when (normalized) {
+            "WARM" -> 0x20FF9A42
+            "COOL" -> 0x1C70BFFF
+            "GREEN" -> 0x1B37E6A2
+            else -> 0x20FF9A42
+        }.toInt()
+        val current = eyeFilterView
+        if (current != null) {
+            current.setBackgroundColor(tintColor)
+            return
+        }
+        val tint = View(this).apply { setBackgroundColor(tintColor) }
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
