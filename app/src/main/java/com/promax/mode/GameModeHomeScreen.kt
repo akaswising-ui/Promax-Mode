@@ -67,12 +67,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.max
 
-private val gameBg = Color(0xFF070B12)
-private val gamePanel = Color(0xFF121B25)
-private val gamePanel2 = Color(0xFF182633)
-private val gameMuted = Color(0xFF9BAEB9)
-private val gameAccent = Color(0xFFB8F34A)
-private val gameCyan = Color(0xFF47DCC1)
+private val gameBg = Color(0xFF090D15)
+private val gamePanel = Color(0xFF171D29)
+private val gamePanel2 = Color(0xFF202A39)
+private val gameMuted = Color(0xFF9EADB9)
+private val gameAccent = Color(0xFF63D8BC)
+private val gameCyan = Color(0xFF70BFFF)
 
 @Composable
 internal fun GameModeHomeScreen(
@@ -143,10 +143,10 @@ internal fun GameModeHomeScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text("PROMAX", color = Color.White, fontWeight = FontWeight.Black, fontSize = 25.sp)
-                    Text("GAME SPACE  /  PERFORMANCE HUB", color = gameMuted, fontSize = 10.sp, letterSpacing = 1.2.sp)
+                    Text("GAME SPACE", color = Color.White, fontWeight = FontWeight.Black, fontSize = 23.sp)
+                    Text("GAME ASSISTANT  •  PERFORMANCE HUB", color = gameMuted, fontSize = 9.sp, letterSpacing = 0.8.sp)
                 }
-                Surface(shape = CircleShape, color = Color(0xFF213027)) {
+                Surface(shape = CircleShape, color = Color(0xFF193B38)) {
                     Text("✦", modifier = Modifier.padding(horizontal = 13.dp, vertical = 9.dp), color = gameAccent, fontSize = 18.sp)
                 }
             }
@@ -160,13 +160,13 @@ internal fun GameModeHomeScreen(
             ) {
                 Box(
                     Modifier.fillMaxWidth()
-                        .background(Brush.linearGradient(listOf(Color(0xFF253C39), Color(0xFF14202B), Color(0xFF14202B))))
+                        .background(Brush.linearGradient(listOf(Color(0xFF1C3536), Color(0xFF14202B), Color(0xFF14202B))))
                         .padding(18.dp)
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Surface(color = gameAccent.copy(alpha = 0.16f), shape = RoundedCornerShape(50)) {
-                                Text("GAME MODE", color = gameAccent, fontSize = 10.sp, fontWeight = FontWeight.Bold,
+                                Text("GAME ASSISTANT", color = gameAccent, fontSize = 10.sp, fontWeight = FontWeight.Bold,
                                     modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp))
                             }
                             Spacer(Modifier.weight(1f))
@@ -176,7 +176,7 @@ internal fun GameModeHomeScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
                                 Modifier.size(58.dp).clip(RoundedCornerShape(18.dp))
-                                    .background(Color(0xFF30443F)),
+                                    .background(Color(0xFF294447)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text("🎮", fontSize = 28.sp)
@@ -212,7 +212,7 @@ internal fun GameModeHomeScreen(
                                     else Toast.makeText(context, "Game launch activity not found.", Toast.LENGTH_SHORT).show()
                                 },
                                 enabled = selectedPackage.isNotBlank(),
-                                colors = ButtonDefaults.buttonColors(containerColor = gameAccent, contentColor = Color(0xFF17210C)),
+                                colors = ButtonDefaults.buttonColors(containerColor = gameAccent, contentColor = Color(0xFF071F1A)),
                                 modifier = Modifier.weight(1f)
                             ) { Text("PLAY GAME", fontWeight = FontWeight.Black) }
                             OutlinedButton(onClick = onAdd, modifier = Modifier.weight(1f)) {
@@ -238,7 +238,7 @@ internal fun GameModeHomeScreen(
                                     }
                                 }
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF263B38), contentColor = gameAccent),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1D4A43), contentColor = gameAccent),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(if (serviceActive) "FLOATING GAME PANEL ACTIVE" else "START GAME ASSISTANT",
@@ -261,7 +261,7 @@ internal fun GameModeHomeScreen(
             }
             Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                 GameMetricCard("CPU", cpuValue, "PROCESSOR", Color(0xFF67DDBB), Modifier.weight(1f))
-                GameMetricCard("RAM", ramValue, "MEMORY", Color(0xFFB8F34A), Modifier.weight(1f))
+                GameMetricCard("RAM", ramValue, "MEMORY", Color(0xFF63D8BC), Modifier.weight(1f))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                 GameMetricCard("BATTERY TEMP", batteryTemp, "BATTERY SENSOR", Color(0xFFFFB35B), Modifier.weight(1f))
@@ -320,7 +320,7 @@ internal fun GameModeHomeScreen(
                                     }
                                 }
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = gameAccent, contentColor = Color(0xFF17210C)),
+                            colors = ButtonDefaults.buttonColors(containerColor = gameAccent, contentColor = Color(0xFF071F1A)),
                             modifier = Modifier.weight(1f)
                         ) {
                             if (busy) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
@@ -481,7 +481,7 @@ private fun GameActionTile(
             horizontalArrangement = Arrangement.spacedBy(9.dp)
         ) {
             Box(
-                Modifier.size(38.dp).clip(RoundedCornerShape(13.dp)).background(Color(0xFF24352F)),
+                Modifier.size(38.dp).clip(RoundedCornerShape(13.dp)).background(Color(0xFF203E3B)),
                 contentAlignment = Alignment.Center
             ) {
                 Text(icon, fontSize = 18.sp)
