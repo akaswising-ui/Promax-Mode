@@ -27,7 +27,7 @@ jobs:
         run: set +o pipefail; yes | sdkmanager --licenses
 
       - name: Install Android SDK, NDK and CMake
-        run: sdkmanager "platforms;android-37" "build-tools;36.0.0" "cmake;3.22.1" "ndk;30.0.16248370"
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0" "cmake;3.22.1" "ndk;30.0.16248370"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
