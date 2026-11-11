@@ -122,6 +122,12 @@ class GameAssistantService : Service() {
     private var ramGaugeView: RingGaugeView? = null
     private var eyeFilterView: View? = null
     private var activeGamePackage: String = ""
+    private var topStatsView: TextView? = null
+    private var overlayFpsStatus: String = "--"
+    private var overlayGpuStatus: String = "N/A"
+    private var lastNetworkRx: Long = -1L
+    private var lastNetworkTx: Long = -1L
+    private var lastNetworkSampleMs: Long = -1L
 
     private val pollTask = object : Runnable {
         override fun run() {
@@ -318,20 +324,20 @@ class GameAssistantService : Service() {
         root.addView(header)
 
         val metricsCard = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(dp(4), dp(5), dp(4), dp(5))
-            background = panelSurface(0xFF152333.toInt(), 0xFF263A50.toInt(), 15)
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            background = panelSurface(0xFF202732.toInt(), 0xFF36424E.toInt(), 14)
         }
-        cpuGaugeView = RingGaugeView(this, "CPU")
-        gpuGaugeView = RingGaugeView(this, "GPU")
-        ramGaugeView = RingGaugeView(this, "RAM")
-        listOf(cpuGaugeView!!, gpuGaugeView!!, ramGaugeView!!).forEach { gauge ->
-            metricsCard.addView(gauge, LinearLayout.LayoutParams(0, dp(88), 1f))
-        }
-        root.addView(metricsCard, LinearLayout.LayoutParams(-1, dp(96)).apply {
+        val statsHeading = label("LIVE PERFORMANCE", 9f, 0xFF9BCFC3.toInt())
+        statsHeading.setTypeface(null, android.graphics.Typeface.BOLD)
+        metricsCard.addView(statsHeading)
+        topStatsView = label("FPS: --    CPU: --    GPU: --\nRAM: --    TEMP: --    NET: --", 10f, 0xFFE4EBF0.toInt())
+        topStatsView?.setPadding(0, dp(5), 0, 0)
+        metricsCard.addView(topStatsView)
+        root.addView(metricsCard, LinearLayout.LayoutParams(-1, dp(76)).apply {
             topMargin = dp(5)
-            bottomMargin = dp(7)
+            bottomMargin = dp(5)
         })
 
         val content = FrameLayout(this)
