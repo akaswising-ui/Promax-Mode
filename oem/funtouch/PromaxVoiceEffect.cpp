@@ -15,7 +15,7 @@
 #include <aidl/android/hardware/audio/effect/DefaultExtension.h>
 #include <aidl/android/hardware/audio/effect/Flags.h>
 #include <android/binder_ibinder.h>
-#include <system/audio_aidl_utils.h>
+#include <Utils.h>
 
 using aidl::android::hardware::audio::effect::DefaultExtension;
 using aidl::android::hardware::audio::effect::Descriptor;
@@ -149,8 +149,8 @@ RetCode PromaxVoiceEffect::releaseContext() {
 
 IEffect::Status PromaxVoiceEffect::effectProcessImpl(
         float* input, float* output, int samples) {
-    if (input == nullptr || output == nullptr || samples < 0) {
-        return {STATUS_INVALID_ARGUMENTS, 0, 0};
+    if (input == nullptr || output == nullptr || samples <= 0) {
+        return {STATUS_OK, 0, 0};
     }
     if (samples == 0) return {STATUS_OK, 0, 0};
 
