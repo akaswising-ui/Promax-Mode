@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.app.role.RoleManager
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.Color
@@ -44,6 +45,7 @@ import com.promax.mode.monitor.DeviceMetricsReader
 import com.promax.mode.monitor.ForegroundGameDetector
 import com.promax.mode.permissions.DndController
 import com.promax.mode.permissions.PermissionTools
+import com.promax.mode.shizuku.ShizukuController
 
 private class RingGaugeView(context: android.content.Context, private val caption: String) : View(context) {
     private val density = resources.displayMetrics.density
@@ -97,6 +99,8 @@ private class RingGaugeView(context: android.content.Context, private val captio
 class GameAssistantService : Service() {
     companion object {
         const val ACTION_STOP = "com.promax.mode.action.STOP_OVERLAY"
+        const val ACTION_SET_EYE_FILTER = "com.promax.mode.action.SET_EYE_FILTER"
+        const val EXTRA_EYE_FILTER_ENABLED = "com.promax.mode.extra.EYE_FILTER_ENABLED"
         private const val CHANNEL_ID = "promax_game_assistant"
         private const val NOTIFICATION_ID = 7301
     }
@@ -115,6 +119,7 @@ class GameAssistantService : Service() {
     private var cpuGaugeView: RingGaugeView? = null
     private var gpuGaugeView: RingGaugeView? = null
     private var ramGaugeView: RingGaugeView? = null
+    private var eyeFilterView: View? = null
 
     private val pollTask = object : Runnable {
         override fun run() {
@@ -130,8 +135,14 @@ class GameAssistantService : Service() {
                     packageManager.getApplicationLabel(packageManager.getApplicationInfo(foreground, 0)).toString().uppercase()
                 }.getOrDefault(foreground.substringAfterLast(".").uppercase())
                 showEdgeHandle()
+                if (getSharedPreferences("promax_settings", MODE_PRIVATE).getBoolean("eye_filter_enabled", false)) {
+                    applyEyeFilter()
+                } else {
+                    removeEyeFilter()
+                }
                 refreshMetrics()
             } else {
+                removeEyeFilter()
                 removePanel()
                 removeHandle()
             }
@@ -160,6 +171,12 @@ class GameAssistantService : Service() {
             )
         } else {
             startForeground(NOTIFICATION_ID, notification)
+        }
+        if (intent?.action == ACTION_SET_EYE_FILTER) {
+            val enabled = intent.getBooleanExtra(EXTRA_EYE_FILTER_ENABLED, false)
+            getSharedPreferences("promax_settings", MODE_PRIVATE)
+                .edit().putBoolean("eye_filter_enabled", enabled).apply()
+            if (enabled) applyEyeFilter() else removeEyeFilter()
         }
         handler.removeCallbacks(pollTask)
         handler.post(pollTask)
@@ -333,13 +350,14 @@ class GameAssistantService : Service() {
         }
 
         val prefs = getSharedPreferences("promax_settings", MODE_PRIVATE)
-        quickRow("📞\nBLOCK CALLS" to {
+        quickRow("🔕\nSILENT MODE" to {
             if (!PermissionTools.hasNotificationPolicyAccess(this@GameAssistantService)) {
                 PermissionTools.openNotificationPolicySettings(this@GameAssistantService)
             } else {
                 val next = !prefs.getBoolean("silence_calls", false)
                 if (DndController.silenceCalls(this@GameAssistantService, next)) {
                     prefs.edit().putBoolean("silence_calls", next).apply()
+                    Toast.makeText(this@GameAssistantService, if (next) "Call alerts silenced" else "Call alerts restored", Toast.LENGTH_SHORT).show()
                 }
             }
         }, "🔕\nBLOCK NOTIFS" to {
@@ -350,14 +368,38 @@ class GameAssistantService : Service() {
                 prefs.edit().putBoolean("block_notifications", next).apply()
             }
         })
-        quickRow("🧹\nCLEAR RAM" to {
+        quickRow("🧹\nCLEAR CACHE" to {
             cacheDir.listFiles()?.forEach { it.deleteRecursively() }
             externalCacheDir?.listFiles()?.forEach { it.deleteRecursively() }
             Toast.makeText(this@GameAssistantService,
                 "Promax temporary cache cleared. Android manages other apps' RAM.",
                 Toast.LENGTH_LONG).show()
         }, "⚙\nSETTINGS" to { showToolsPanel?.invoke() })
-        root.addView(quickTools, LinearLayout.LayoutParams(-1, dp(116)))
+        quickRow("📸\nSCREENSHOT" to {
+            Thread {
+                val result = runCatching { ShizukuController.takeScreenshot() }
+                    .getOrElse { "Connect Shizuku in Promax > Access first" }
+                handler.post { Toast.makeText(this@GameAssistantService, result, Toast.LENGTH_LONG).show() }
+            }.start()
+        }, "⏺\nSCREEN RECORD" to {
+            Thread {
+                val active = prefs.getBoolean("screen_recording_active", false)
+                val result = runCatching {
+                    if (active) ShizukuController.stopScreenRecording()
+                    else ShizukuController.startScreenRecording()
+                }.getOrElse { "Connect Shizuku in Promax > Access first" }
+                val recording = result.startsWith("RECORDING:")
+                prefs.edit().putBoolean("screen_recording_active", recording).apply()
+                handler.post { Toast.makeText(this@GameAssistantService, result, Toast.LENGTH_LONG).show() }
+            }.start()
+        })
+        quickRow("🌗\nEYE FILTER" to {
+            val next = !prefs.getBoolean("eye_filter_enabled", false)
+            prefs.edit().putBoolean("eye_filter_enabled", next).apply()
+            if (next) applyEyeFilter() else removeEyeFilter()
+            Toast.makeText(this@GameAssistantService, if (next) "Warm eye filter on" else "Warm eye filter off", Toast.LENGTH_SHORT).show()
+        }, "☎\nBLOCK UNKNOWN" to { toggleUnknownCallBlocking() })
+        root.addView(quickTools, LinearLayout.LayoutParams(-1, dp(174)))
 
         fun addTools() {
             browser?.stopLoading()
@@ -401,6 +443,13 @@ class GameAssistantService : Service() {
                 }
             }
             tools.addView(calls, LinearLayout.LayoutParams(-1, dp(44)))
+            tools.addView(Button(this).apply {
+                text = if (prefs.getBoolean("block_unknown_calls", false)) "Unknown-call blocking: ON" else "Block unknown incoming calls"
+                setOnClickListener {
+                    toggleUnknownCallBlocking()
+                    text = if (prefs.getBoolean("block_unknown_calls", false)) "Unknown-call blocking: ON" else "Block unknown incoming calls"
+                }
+            }, LinearLayout.LayoutParams(-1, dp(44)))
             val note = EditText(this).apply {
                 textSize = 12f
                 hint = "Quick game note"
@@ -728,6 +777,58 @@ class GameAssistantService : Service() {
         })
     }
 
+    private fun toggleUnknownCallBlocking() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            Toast.makeText(this, "Call screening requires Android 10 or newer.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val roleManager = getSystemService(RoleManager::class.java)
+        if (roleManager == null || !roleManager.isRoleAvailable(RoleManager.ROLE_CALL_SCREENING)) {
+            Toast.makeText(this, "This Android build does not expose call screening.", Toast.LENGTH_LONG).show()
+            return
+        }
+        if (!roleManager.isRoleHeld(RoleManager.ROLE_CALL_SCREENING)) {
+            val request = roleManager.createRequestRoleIntent(RoleManager.ROLE_CALL_SCREENING)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(request)
+            Toast.makeText(this, "Allow Promax as call-screening app, then tap Block Unknown again.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val prefs = getSharedPreferences("promax_settings", MODE_PRIVATE)
+        val enabled = !prefs.getBoolean("block_unknown_calls", false)
+        prefs.edit().putBoolean("block_unknown_calls", enabled).apply()
+        Toast.makeText(this, if (enabled) "Unknown incoming calls will be rejected." else "Unknown-call blocking disabled.", Toast.LENGTH_LONG).show()
+    }
+
+    private fun applyEyeFilter() {
+        if (eyeFilterView != null || !PermissionTools.hasOverlay(this)) return
+        val tint = View(this).apply { setBackgroundColor(0x24FF9A42) }
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+        }
+        try {
+            windowManager?.addView(tint, params)
+            eyeFilterView = tint
+        } catch (_: Exception) {
+            eyeFilterView = null
+        }
+    }
+
+    private fun removeEyeFilter() {
+        val current = eyeFilterView ?: return
+        try { windowManager?.removeView(current) } catch (_: Exception) {}
+        eyeFilterView = null
+    }
+
     private fun refreshMetrics() {
         val metrics = metricsReader.read()
         val cpu = metrics.cpuPercent
@@ -804,6 +905,7 @@ class GameAssistantService : Service() {
         handler.removeCallbacks(pollTask)
         removePanel()
         removeHandle()
+        removeEyeFilter()
         val prefs = getSharedPreferences("promax_settings", MODE_PRIVATE)
         if (prefs.getBoolean("silence_calls", false)) {
             DndController.silenceCalls(this, false)
