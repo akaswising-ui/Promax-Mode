@@ -527,7 +527,7 @@ class GameAssistantService : Service() {
             val currentProfile = prefs.getString("performance_profile", "BALANCED") ?: "BALANCED"
             val modeCards = linkedMapOf<String, TextView>()
             val modeRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            fun setPerformanceProfile(profile: String) {
+            fun setPerformanceProfile(profile: String, showToast: Boolean = true) {
                 prefs.edit()
                     .putString("performance_profile", profile)
                     .putBoolean("high_monitor_rate", profile == "PRO GAMER")
@@ -543,7 +543,7 @@ class GameAssistantService : Service() {
                 }
                 handler.removeCallbacks(pollTask)
                 handler.post(pollTask)
-                Toast.makeText(
+                if (showToast) Toast.makeText(
                     this@GameAssistantService,
                     when (profile) {
                         "LOW POWER" -> "Low-power monitoring profile selected"
@@ -567,7 +567,7 @@ class GameAssistantService : Service() {
                 tile.setOnClickListener { setPerformanceProfile(profile) }
             }
             home.addView(modeRow)
-            setPerformanceProfile(currentProfile)
+            setPerformanceProfile(currentProfile, false)
 
             val metricsTitle = label("LIVE GAME STATUS", 11f, 0xFFB6D7D0.toInt()).apply {
                 setTypeface(null, android.graphics.Typeface.BOLD)
@@ -657,9 +657,20 @@ class GameAssistantService : Service() {
             }
             toolRow("🎙\nVOICE CHANGER" to { showVoicePanel?.invoke() },
                 "🎨\nGAME FILTERS" to {
-                    val selected = prefs.getString("game_filter", "OFF") ?: "OFF"
-                    applyGameFilter(if (selected == "WARM") "OFF" else "WARM")
-                    Toast.makeText(this@GameAssistantService, if (selected == "WARM") "Game filter off" else "Warm game filter on", Toast.LENGTH_SHORT).show()
+                    val filters = arrayOf("Warm tint", "Cool tint", "Green tint", "Off")
+                    android.app.AlertDialog.Builder(this@GameAssistantService)
+                        .setTitle("Game display filters")
+                        .setItems(filters) { _, which ->
+                            val value = when (which) {
+                                0 -> "WARM"
+                                1 -> "COOL"
+                                2 -> "GREEN"
+                                else -> "OFF"
+                            }
+                            applyGameFilter(value)
+                            Toast.makeText(this@GameAssistantService, if (value == "OFF") "Filter off" else value.lowercase() + " tint enabled", Toast.LENGTH_SHORT).show()
+                        }
+                        .show()
                 })
             toolRow("☝\nTOUCH OPTIM." to {
                 Toast.makeText(
