@@ -398,7 +398,7 @@ class GameAssistantService : Service() {
             prefs.edit().putBoolean("eye_filter_enabled", next).apply()
             if (next) applyEyeFilter() else removeEyeFilter()
             Toast.makeText(this@GameAssistantService, if (next) "Warm eye filter on" else "Warm eye filter off", Toast.LENGTH_SHORT).show()
-        }, "☎\nBLOCK UNKNOWN" to { toggleUnknownCallBlocking() })
+        }, "☎\nBLOCK CALLS" to { toggleUnknownCallBlocking() })
         root.addView(quickTools, LinearLayout.LayoutParams(-1, dp(174)))
 
         fun addTools() {
@@ -444,7 +444,7 @@ class GameAssistantService : Service() {
             }
             tools.addView(calls, LinearLayout.LayoutParams(-1, dp(44)))
             tools.addView(Button(this).apply {
-                text = if (prefs.getBoolean("block_unknown_calls", false)) "Unknown-call blocking: ON" else "Block unknown incoming calls"
+                text = if (prefs.getBoolean("block_unknown_calls", false)) "Call blocking: ON" else "Block incoming calls"
                 setOnClickListener {
                     toggleUnknownCallBlocking()
                     text = if (prefs.getBoolean("block_unknown_calls", false)) "Unknown-call blocking: ON" else "Block unknown incoming calls"
@@ -791,13 +791,13 @@ class GameAssistantService : Service() {
             val request = roleManager.createRequestRoleIntent(RoleManager.ROLE_CALL_SCREENING)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             startActivity(request)
-            Toast.makeText(this, "Allow Promax as call-screening app, then tap Block Unknown again.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Allow Promax as call-screening app, then tap Block Calls again.", Toast.LENGTH_LONG).show()
             return
         }
         val prefs = getSharedPreferences("promax_settings", MODE_PRIVATE)
         val enabled = !prefs.getBoolean("block_unknown_calls", false)
         prefs.edit().putBoolean("block_unknown_calls", enabled).apply()
-        Toast.makeText(this, if (enabled) "Unknown incoming calls will be rejected." else "Unknown-call blocking disabled.", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, if (enabled) "Incoming calls will be rejected while this switch is enabled." else "Incoming-call blocking disabled.", Toast.LENGTH_LONG).show()
     }
 
     private fun applyEyeFilter() {
