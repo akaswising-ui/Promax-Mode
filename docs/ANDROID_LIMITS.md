@@ -1,31 +1,34 @@
 # Android capability and permission notes
 
-## Overlay
-
-SYSTEM_ALERT_WINDOW is special app access, not a normal runtime permission. Check Settings.canDrawOverlays() and send the user to ACTION_MANAGE_OVERLAY_PERMISSION. The overlay service starts only after the user explicitly presses Start.
+## Overlay and browser
+SYSTEM_ALERT_WINDOW is special app access. The user must enable Display over other apps in Settings. Promax starts the overlay only after the user starts its foreground assistant service. The browser uses a WebView with HTTPS navigation only; JavaScript, local file access, content access and mixed content are disabled.
 
 ## Usage Access
-
-PACKAGE_USAGE_STATS is granted in Settings. The foreground detector reads usage events and matches the active package against the user's saved game list. Device vendors can delay or restrict usage events, so detection is best-effort.
+PACKAGE_USAGE_STATS is granted in Settings. Promax reads UsageEvents to detect a selected launcher app in the foreground. OEMs can delay, restrict or change event visibility, so game detection is best-effort.
 
 ## Foreground service
+The assistant is a user-started specialUse foreground service and declares its subtype in the manifest. Android/Play distribution requirements still apply; declaring a service type does not guarantee store approval.
 
-Android 14+ requires an appropriate foreground-service type. This prototype declares specialUse and describes its subtype as a user-started game overlay. Distribution still requires Play Console declaration/review where applicable. Do not silently start this service at boot.
+## Notifications and DND
+The notification listener requires separate user approval. It dismisses ordinary posted notifications while the toggle is enabled; it does not stop apps from posting notifications. DND access is separate and silences call interruption alerts. It does not reject or decline the call.
 
-## Notification access and DND
+## Shizuku
+Promax uses Shizuku API/Provider 13.1.5 with an AIDL UserService. The user installs and starts Shizuku separately and explicitly grants Promax permission. The helper reports UID 0 (root) or UID 2000 (shell/ADB).
 
-The notification listener is protected by BIND_NOTIFICATION_LISTENER_SERVICE and must be enabled by the user in Settings. The listener dismisses ordinary non-ongoing notifications only when the in-app toggle is enabled. Telecom packages are excluded.
+ADB shell is not root and cannot access arbitrary app-private data under /data/user/0/package. SELinux policy, Android release and OEM changes affect what is accessible. The file manager is constrained to /storage/emulated/0 shared storage. It has canonical path checks and non-recursive deletion. It does not execute arbitrary shell text or edit protected partitions.
 
-DND policy access is separate. The call-alert shortcut removes the Calls category from the priority policy and saves/restores the previous filter and policy values. It silences alerts; it does not decline a call. DND is device-wide and can affect other apps.
+## FPS and GPU
+FPS sampling uses SurfaceFlinger's timestats commands and filters a matching layer/package name from the dump. The layer has to be exposed by the device build and the Shizuku identity must be allowed to query it. Unsupported devices return FPS_UNAVAILABLE.
 
-## CPU, RAM, GPU and FPS
-
-The app reads /proc/stat for a system CPU activity estimate and uses ActivityManager.getMemoryInfo() for aggregate RAM. Android does not provide ordinary apps with a supported, universal API for another process's FPS or GPU utilization. OEM game dashboards may use privileged APIs unavailable to third-party apps.
+GPU sampling probes the Qualcomm KGSL gpubusy node. This is device-wide GPU busy time, not a game-process GPU percentage. Other vendors may use different private counters; when the node is absent or unreadable the UI reports GPU_UNAVAILABLE.
 
 ## Voice
+AudioRecord captures microphone PCM, native C++ DSP modifies samples and AudioTrack monitors them inside Promax. It is not a virtual microphone for Discord, cellular calls or another game's process. NoiseSuppressor is used only when the device advertises it; the noise gate is a separate threshold processor.
 
-The recorder captures microphone PCM, applies local DSP, plays the processed audio through an AudioTrack, and writes WAV. It is not a virtual audio input device. Android's audio-input sharing and privacy rules do not allow an ordinary app to replace another app's microphone stream.
+The pitch slider uses a granular delay-line pitch shift. Formant control uses biquad spectral shaping and is not a studio-grade formant-preserving vocoder. Child and Old Man presets combine those controls; they do not generate neural character voices.
+
+## MP3
+The Shine Layer III encoder is included with its upstream LGPL v2 license at app/src/main/cpp/shine/COPYING. Current MP3 export supports Promax 44.1 kHz mono PCM16 WAV recordings. Imported MP3 files are playable through the Android soundboard.
 
 ## Package visibility
-
-The manifest declares launcher-intent visibility instead of requesting QUERY_ALL_PACKAGES. Users can select apps visible as launcher activities. Game classification is a heuristic and should be user-editable.
+The manifest declares launcher-intent visibility instead of QUERY_ALL_PACKAGES. Users can select apps visible as launcher activities. Game classification is heuristic and editable.

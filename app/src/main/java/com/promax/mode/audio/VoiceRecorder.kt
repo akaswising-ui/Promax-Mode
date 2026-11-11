@@ -6,28 +6,17 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.AudioTrack
 import android.media.MediaRecorder
+import android.media.audiofx.NoiseSuppressor
 import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileOutputStream
-import kotlin.math.PI
-import kotlin.math.sin
-import kotlin.math.tanh
-
-enum class VoiceEffect(val title: String) {
-    CLEAN("Clean"),
-    ROBOT("Robot"),
-    ALIEN("Alien"),
-    MONSTER("Monster"),
-    ECHO("Echo")
-}
 
 /**
- * Records and locally monitors processed microphone audio inside Promax.
- * Android does not let an ordinary app inject this stream as the microphone
- * for Discord, a phone call, or another game's process.
+ * Captures microphone PCM, processes it in native C++ and stores the result as
+ * a local WAV. Audio is not injected into other apps or phone calls.
  */
 class VoiceRecorder(private val context: Context) {
     companion object {
@@ -42,6 +31,10 @@ class VoiceRecorder(private val context: Context) {
 
     fun start(
         effect: VoiceEffect,
+        pitchSemitones: Float,
+        formantSemitones: Float,
+        noiseGateDb: Float,
+        systemNoiseSuppression: Boolean,
         onSaved: (File) -> Unit,
         onError: (String) -> Unit
     ) {
@@ -51,6 +44,8 @@ class VoiceRecorder(private val context: Context) {
         worker = Thread {
             var recorder: AudioRecord? = null
             var player: AudioTrack? = null
+            var noiseSuppressor: NoiseSuppressor? = null
+            var outputFile: File? = null
             var sampleCount = 0L
             try {
                 val minBuffer = AudioRecord.getMinBufferSize(
@@ -71,6 +66,12 @@ class VoiceRecorder(private val context: Context) {
                     "Microphone could not be initialized"
                 }
 
+                if (systemNoiseSuppression && NoiseSuppressor.isAvailable()) {
+                    noiseSuppressor = runCatching {
+                        NoiseSuppressor.create(recorder.audioSessionId)?.apply { enabled = true }
+                    }.getOrNull()
+                }
+
                 val audioFormat = AudioFormat.Builder()
                     .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
                     .setSampleRate(SAMPLE_RATE)
@@ -88,15 +89,13 @@ class VoiceRecorder(private val context: Context) {
                     .setBufferSizeInBytes(maxOf(minBuffer * 2, 4096))
                     .build()
 
-                val musicDir = context.getExternalFilesDir(Environment.DIRECTORY_MUSIC)
-                    ?: context.filesDir
-                if (!musicDir.exists()) musicDir.mkdirs()
-                val outputFile = File(
-                    musicDir,
-                    "promax_voice_" + System.currentTimeMillis() + ".wav"
+                val musicDir = File(
+                    context.getExternalFilesDir(Environment.DIRECTORY_MUSIC) ?: context.filesDir,
+                    "Promax"
                 )
+                if (!musicDir.exists()) musicDir.mkdirs()
+                outputFile = File(musicDir, "promax_voice_" + System.currentTimeMillis() + ".wav")
 
-                val processor = VoiceProcessor(effect, SAMPLE_RATE)
                 val samples = ShortArray(1024)
                 recorder.startRecording()
                 player.play()
@@ -106,7 +105,14 @@ class VoiceRecorder(private val context: Context) {
                     while (recording) {
                         val count = recorder.read(samples, 0, samples.size, AudioRecord.READ_BLOCKING)
                         if (count > 0) {
-                            processor.process(samples, count)
+                            NativeDsp.process(
+                                samples,
+                                count,
+                                effect.id,
+                                pitchSemitones,
+                                formantSemitones,
+                                noiseGateDb
+                            )
                             player.write(samples, 0, count, AudioTrack.WRITE_BLOCKING)
                             for (i in 0 until count) {
                                 val value = samples[i].toInt()
@@ -122,7 +128,8 @@ class VoiceRecorder(private val context: Context) {
                 }
 
                 WavFile.writePcm16MonoHeader(outputFile, SAMPLE_RATE, sampleCount)
-                mainHandler.post { onSaved(outputFile) }
+                val saved = outputFile
+                mainHandler.post { onSaved(saved) }
             } catch (error: Exception) {
                 val message = error.message ?: "Audio recording failed"
                 mainHandler.post { onError(message) }
@@ -130,48 +137,17 @@ class VoiceRecorder(private val context: Context) {
                 recording = false
                 try { recorder?.stop() } catch (_: Exception) {}
                 recorder?.release()
+                noiseSuppressor?.release()
                 try { player?.stop() } catch (_: Exception) {}
                 player?.release()
             }
         }.apply {
-            name = "PromaxVoiceRecorder"
+            name = "PromaxNativeVoiceRecorder"
             start()
         }
     }
 
     fun stop() {
         recording = false
-    }
-
-    private class VoiceProcessor(
-        private val effect: VoiceEffect,
-        sampleRate: Int
-    ) {
-        private var phase = 0.0
-        private val phaseStep = 2.0 * PI * 75.0 / sampleRate
-        private val delay = ShortArray(sampleRate / 4)
-        private var delayIndex = 0
-
-        fun process(buffer: ShortArray, count: Int) {
-            for (i in 0 until count) {
-                val input = buffer[i].toFloat()
-                val wave = sin(phase).toFloat()
-                val output = when (effect) {
-                    VoiceEffect.CLEAN -> input
-                    VoiceEffect.ROBOT -> input * wave * 0.95f
-                    VoiceEffect.ALIEN -> input * (0.25f + 0.75f * wave)
-                    VoiceEffect.MONSTER -> (tanh(input / 6500.0) * 26000.0).toFloat()
-                    VoiceEffect.ECHO -> {
-                        val delayed = delay[delayIndex].toFloat()
-                        delay[delayIndex] = input.toInt().coerceIn(-32768, 32767).toShort()
-                        delayIndex = (delayIndex + 1) % delay.size
-                        input + delayed * 0.48f
-                    }
-                }
-                buffer[i] = output.toInt().coerceIn(-32768, 32767).toShort()
-                phase += phaseStep
-                if (phase >= 2.0 * PI) phase -= 2.0 * PI
-            }
-        }
     }
 }
