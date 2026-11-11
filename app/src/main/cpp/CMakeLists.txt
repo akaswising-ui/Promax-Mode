@@ -6,9 +6,8 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 file(GLOB SHINE_SOURCES CONFIGURE_DEPENDS "\${CMAKE_CURRENT_SOURCE_DIR}/shine/*.c")
-add_library(shine STATIC \${SHINE_SOURCES})
+add_library(shine SHARED \${SHINE_SOURCES})
 target_include_directories(shine PUBLIC "\${CMAKE_CURRENT_SOURCE_DIR}/shine")
-set_target_properties(shine PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 add_library(promax_dsp SHARED promax_dsp.cpp)
 find_library(log-lib log)

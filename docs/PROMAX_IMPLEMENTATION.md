@@ -16,7 +16,7 @@
 - Shared-storage paths are canonicalized and constrained to /storage/emulated/0.
 
 ## Native audio
-- promax_dsp.cpp owns the PCM DSP and Shine MP3 encoder JNI entry points.
+- promax_dsp.cpp owns the PCM DSP and Shine MP3 encoder JNI entry points; Shine is built as a separate shared libshine.so for LGPL-friendly relinking.
 - VoiceRecorder supplies PCM chunks from AudioRecord and routes processed chunks through AudioTrack.
 - UI calls are NativeDsp.process(samples, count, effect, pitch, formant, gate) and NativeMp3.encodeWavToMp3(input, output).
 - Voice profiles are local JSON in SharedPreferences.
