@@ -324,7 +324,7 @@ private fun ShizukuGameMonitorCard(games: Set<String>) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Text("Game-specific monitor", fontWeight = FontWeight.Bold, fontSize = 18.sp)
             Text(
-                "Uses Shizuku shell diagnostics. SurfaceFlinger FPS and GPU counters depend on your Android build and GPU driver.",
+                "FPS is matched to the selected game's SurfaceFlinger layer. GPU is device-wide Qualcomm KGSL busy time, not per-game GPU attribution.",
                 color = mutedText,
                 fontSize = 12.sp
             )

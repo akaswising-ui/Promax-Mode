@@ -24,7 +24,7 @@ jobs:
         uses: android-actions/setup-android@v4
 
       - name: Accept Android SDK licenses
-        run: yes | sdkmanager --licenses
+        run: set +o pipefail; yes | sdkmanager --licenses
 
       - name: Install Android SDK, NDK and CMake
         run: sdkmanager "platforms;android-37" "build-tools;36.0.0" "cmake;3.22.1" "ndk;30.0.16248370"

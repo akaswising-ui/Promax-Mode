@@ -23,6 +23,6 @@
 
 ## Build dependencies
 - Shizuku API/Provider 13.1.5
-- NDK 27.2.12479018
+- NDK 30.0.16248370
 - CMake 3.22.1
 - AGP 9.3.1 / Gradle 9.5.0
