@@ -676,20 +676,16 @@ class GameAssistantService : Service() {
             }
             toolRow("🎙\nVOICE CHANGER" to { showVoicePanel?.invoke() },
                 "🎨\nGAME FILTERS" to {
-                    val filters = arrayOf("Warm tint", "Cool tint", "Green tint", "Off")
-                    android.app.AlertDialog.Builder(this@GameAssistantService)
-                        .setTitle("Game display filters")
-                        .setItems(filters) { _, which ->
-                            val value = when (which) {
-                                0 -> "WARM"
-                                1 -> "COOL"
-                                2 -> "GREEN"
-                                else -> "OFF"
-                            }
-                            applyGameFilter(value)
-                            Toast.makeText(this@GameAssistantService, if (value == "OFF") "Filter off" else value.lowercase() + " tint enabled", Toast.LENGTH_SHORT).show()
-                        }
-                        .show()
+                    val current = prefs.getString("game_filter", "OFF") ?: "OFF"
+                    val nextFilter = when (current) {
+                        "OFF" -> "WARM"
+                        "WARM" -> "COOL"
+                        "COOL" -> "GREEN"
+                        else -> "OFF"
+                    }
+                    applyGameFilter(nextFilter)
+                    val labelText = if (nextFilter == "OFF") "Game filter off" else nextFilter.lowercase() + " display tint"
+                    Toast.makeText(this@GameAssistantService, labelText, Toast.LENGTH_SHORT).show()
                 })
             toolRow("☝\nTOUCH OPTIM." to {
                 Toast.makeText(
