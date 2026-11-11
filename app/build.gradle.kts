@@ -6,6 +6,7 @@ plugins {
 android {
     namespace = "com.promax.mode"
     compileSdk = 37
+    ndkVersion = "30.0.16248370"
 
     defaultConfig {
         applicationId = "com.promax.mode"

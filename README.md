@@ -9,7 +9,7 @@ Promax Mode is an Android Game Space and Voice Studio prototype built with Kotli
 - Kotlin / Compose compiler plugin: 2.4.21
 - Compile SDK: 37; target SDK: 36
 - Minimum Android: API 26
-- NDK: 27.2.12479018 (CI)
+- NDK: 30.0.16248370 (LTS)
 - CMake: 3.22.1
 - Shizuku API / Provider: 13.1.5
 
@@ -66,7 +66,7 @@ Shizuku ADB mode usually runs with shell UID 2000, not root UID 0. Access depend
 
 ## Build
 
-Install Android SDK Platform 37, Build Tools 36.0.0, NDK 27.2.12479018 and CMake 3.22.1. Open the project in Android Studio and sync Gradle.
+Install Android SDK Platform 37, Build Tools 36.0.0, NDK 30.0.16248370 and CMake 3.22.1. Open the project in Android Studio and sync Gradle.
 
 CLI:
 
