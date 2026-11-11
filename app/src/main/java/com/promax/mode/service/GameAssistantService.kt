@@ -40,6 +40,7 @@ import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import com.promax.mode.MainActivity
+import com.promax.mode.audio.LiveVoiceMonitorService
 import com.promax.mode.audio.VoiceControlSettings
 import com.promax.mode.audio.VoiceControlStore
 import com.promax.mode.audio.VoiceEffect
@@ -821,6 +822,32 @@ class GameAssistantService : Service() {
             }
             voiceHeader.addView(collapse)
             voiceCard.addView(voiceHeader)
+
+            val liveMonitorActive = getSharedPreferences("promax_voice_runtime", MODE_PRIVATE)
+                .getBoolean("live_monitor_active", false)
+            voiceCard.addView(Button(this).apply {
+                text = if (liveMonitorActive) "STOP LIVE MIC PREVIEW" else "OPEN LIVE MIC CONTROLS"
+                setOnClickListener {
+                    if (liveMonitorActive) {
+                        startService(
+                            Intent(this@GameAssistantService, LiveVoiceMonitorService::class.java)
+                                .setAction(LiveVoiceMonitorService.ACTION_STOP)
+                        )
+                        Toast.makeText(this@GameAssistantService, "Live voice preview stopped", Toast.LENGTH_SHORT).show()
+                    } else {
+                        startActivity(
+                            Intent(this@GameAssistantService, MainActivity::class.java)
+                                .putExtra(MainActivity.EXTRA_OPEN_VOICE_STUDIO, true)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                        Toast.makeText(
+                            this@GameAssistantService,
+                            "Start Live Voice Monitor in Voice Studio while the app is open, then return to your game.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+            }, LinearLayout.LayoutParams(-1, dp(42)))
 
             val voiceBody = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
