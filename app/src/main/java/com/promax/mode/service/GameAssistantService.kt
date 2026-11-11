@@ -30,6 +30,7 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import android.widget.HorizontalScrollView
 import android.widget.SeekBar
 import android.widget.Switch
 import android.widget.TextView
@@ -120,6 +121,7 @@ class GameAssistantService : Service() {
     private var gpuGaugeView: RingGaugeView? = null
     private var ramGaugeView: RingGaugeView? = null
     private var eyeFilterView: View? = null
+    private var activeGamePackage: String = ""
 
     private val pollTask = object : Runnable {
         override fun run() {
@@ -131,6 +133,7 @@ class GameAssistantService : Service() {
             if (foreground != null && games.contains(foreground) &&
                 PermissionTools.hasOverlay(this@GameAssistantService)
             ) {
+                activeGamePackage = foreground
                 activeGameLabel = runCatching {
                     packageManager.getApplicationLabel(packageManager.getApplicationInfo(foreground, 0)).toString().uppercase()
                 }.getOrDefault(foreground.substringAfterLast(".").uppercase())
@@ -334,54 +337,59 @@ class GameAssistantService : Service() {
         var showToolsPanel: (() -> Unit)? = null
         var showBrowserPanel: (() -> Unit)? = null
 
-        val quickTools = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(5), 0, 0)
-        }
-        fun quickRow(first: Pair<String, () -> Unit>, second: Pair<String, () -> Unit>) {
-            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            row.addView(actionTile(first.first, first.second), LinearLayout.LayoutParams(0, dp(53), 1f).apply {
-                setMargins(dp(2), dp(2), dp(3), dp(2))
-            })
-            row.addView(actionTile(second.first, second.second), LinearLayout.LayoutParams(0, dp(53), 1f).apply {
-                setMargins(dp(3), dp(2), dp(2), dp(2))
-            })
-            quickTools.addView(row)
-        }
-
         val prefs = getSharedPreferences("promax_settings", MODE_PRIVATE)
-        quickRow("🔕\nSILENT MODE" to {
-            if (!PermissionTools.hasNotificationPolicyAccess(this@GameAssistantService)) {
-                PermissionTools.openNotificationPolicySettings(this@GameAssistantService)
-            } else {
-                val next = !prefs.getBoolean("silence_calls", false)
-                if (DndController.silenceCalls(this@GameAssistantService, next)) {
-                    prefs.edit().putBoolean("silence_calls", next).apply()
-                    Toast.makeText(this@GameAssistantService, if (next) "Call alerts silenced" else "Call alerts restored", Toast.LENGTH_SHORT).show()
+        val quickTools = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            setPadding(0, dp(5), 0, dp(4))
+        }
+        val quickToolsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        fun quickShortcut(icon: String, title: String, onTap: () -> Unit) {
+            val item = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER
+                isClickable = true
+                isFocusable = true
+                setPadding(dp(5), dp(3), dp(5), dp(3))
+                setOnClickListener {
+                    animate().scaleX(0.94f).scaleY(0.94f).setDuration(70).withEndAction {
+                        animate().scaleX(1f).scaleY(1f).setDuration(90).start()
+                        onTap()
+                    }.start()
                 }
             }
-        }, "🔕\nBLOCK NOTIFS" to {
-            if (!PermissionTools.hasNotificationListenerAccess(this@GameAssistantService)) {
-                PermissionTools.openNotificationListenerSettings(this@GameAssistantService)
-            } else {
-                val next = !prefs.getBoolean("block_notifications", false)
-                prefs.edit().putBoolean("block_notifications", next).apply()
+            val circle = TextView(this).apply {
+                text = icon
+                textSize = 17f
+                gravity = Gravity.CENTER
+                setTextColor(0xFFBDF4E7.toInt())
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(0xFF183B3A.toInt())
+                    setStroke(dp(1), 0xFF397A71.toInt())
+                }
             }
-        })
-        quickRow("🧹\nCLEAR CACHE" to {
-            cacheDir.listFiles()?.forEach { it.deleteRecursively() }
-            externalCacheDir?.listFiles()?.forEach { it.deleteRecursively() }
-            Toast.makeText(this@GameAssistantService,
-                "Promax temporary cache cleared. Android manages other apps' RAM.",
-                Toast.LENGTH_LONG).show()
-        }, "⚙\nSETTINGS" to { showToolsPanel?.invoke() })
-        quickRow("📸\nSCREENSHOT" to {
+            item.addView(circle, LinearLayout.LayoutParams(dp(42), dp(42)))
+            item.addView(TextView(this).apply {
+                text = title
+                textSize = 8.5f
+                gravity = Gravity.CENTER
+                setTextColor(0xFFDCE7E8.toInt())
+                maxLines = 1
+            }, LinearLayout.LayoutParams(dp(58), dp(20)))
+            quickToolsRow.addView(item, LinearLayout.LayoutParams(dp(62), dp(66)))
+        }
+        quickShortcut("🎙", "VOICE") { showVoicePanel?.invoke() }
+        quickShortcut("📸", "SHOT") {
             Thread {
                 val result = runCatching { ShizukuController.takeScreenshot() }
                     .getOrElse { "Connect Shizuku in Promax > Access first" }
                 handler.post { Toast.makeText(this@GameAssistantService, result, Toast.LENGTH_LONG).show() }
             }.start()
-        }, "⏺\nSCREEN RECORD" to {
+        }
+        quickShortcut("⏺", "RECORD") {
             Thread {
                 val active = prefs.getBoolean("screen_recording_active", false)
                 val result = runCatching {
@@ -392,14 +400,30 @@ class GameAssistantService : Service() {
                 prefs.edit().putBoolean("screen_recording_active", recording).apply()
                 handler.post { Toast.makeText(this@GameAssistantService, result, Toast.LENGTH_LONG).show() }
             }.start()
-        })
-        quickRow("🌗\nEYE FILTER" to {
-            val next = !prefs.getBoolean("eye_filter_enabled", false)
-            prefs.edit().putBoolean("eye_filter_enabled", next).apply()
-            if (next) applyEyeFilter() else removeEyeFilter()
-            Toast.makeText(this@GameAssistantService, if (next) "Warm eye filter on" else "Warm eye filter off", Toast.LENGTH_SHORT).show()
-        }, "☎\nBLOCK CALLS" to { toggleUnknownCallBlocking() })
-        root.addView(quickTools, LinearLayout.LayoutParams(-1, dp(174)))
+        }
+        quickShortcut("🔕", "SILENT") {
+            if (!PermissionTools.hasNotificationPolicyAccess(this@GameAssistantService)) {
+                PermissionTools.openNotificationPolicySettings(this@GameAssistantService)
+            } else {
+                val next = !prefs.getBoolean("silence_calls", false)
+                if (DndController.silenceCalls(this@GameAssistantService, next)) {
+                    prefs.edit().putBoolean("silence_calls", next).apply()
+                    Toast.makeText(this@GameAssistantService, if (next) "Call alerts silenced" else "Call alerts restored", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        quickShortcut("◉", "NOTIFS") {
+            if (!PermissionTools.hasNotificationListenerAccess(this@GameAssistantService)) {
+                PermissionTools.openNotificationListenerSettings(this@GameAssistantService)
+            } else {
+                val next = !prefs.getBoolean("block_notifications", false)
+                prefs.edit().putBoolean("block_notifications", next).apply()
+                Toast.makeText(this@GameAssistantService, if (next) "Notification blocking on" else "Notification blocking off", Toast.LENGTH_SHORT).show()
+            }
+        }
+        quickShortcut("☎", "CALLS") { toggleUnknownCallBlocking() }
+        quickTools.addView(quickToolsRow)
+        root.addView(quickTools, LinearLayout.LayoutParams(-1, dp(75)))
 
         fun addTools() {
             browser?.stopLoading()
