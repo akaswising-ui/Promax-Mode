@@ -20,7 +20,6 @@ import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
 import com.promax.mode.MainActivity
-import com.promax.mode.R
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -232,7 +231,7 @@ class LiveVoiceMonitorService : Service() {
                         )
                         val written = player.write(samples, 0, count, AudioTrack.WRITE_BLOCKING)
                         if (written < 0) throw IllegalStateException("Audio output failed: " + written)
-                    } else if (count < 0 && count != AudioRecord.ERROR_INVALID_OPERATION) {
+                    } else if (count < 0) {
                         throw IllegalStateException("Microphone read failed: " + count)
                     }
                 }
@@ -314,7 +313,7 @@ class LiveVoiceMonitorService : Service() {
             "Processed voice is playing to your selected audio output. Headphones recommended."
         }
         return Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentTitle(title)
             .setContentText(detail)
             .setContentIntent(openApp)
