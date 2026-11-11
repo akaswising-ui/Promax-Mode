@@ -44,6 +44,16 @@
         </service>
 
         <service
+            android:name=".service.PromaxCallScreeningService"
+            android:label="Promax call screening"
+            android:exported="true"
+            android:permission="android.permission.BIND_SCREENING_SERVICE">
+            <intent-filter>
+                <action android:name="android.telecom.CallScreeningService" />
+            </intent-filter>
+        </service>
+
+        <service
             android:name=".service.GameNotificationListener"
             android:label="Promax notification filter"
             android:exported="true"
