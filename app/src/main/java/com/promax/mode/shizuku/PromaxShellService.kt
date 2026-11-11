@@ -20,6 +20,9 @@ class PromaxShellService : IShizukuBridge.Stub() {
         private var lastGpuTotal = -1L
     }
 
+    private var screenRecordProcess: Process? = null
+    private var screenRecordPath: String? = null
+
     override fun getIdentity(): String {
         val uid = Os.getuid()
         val mode = when (uid) {
