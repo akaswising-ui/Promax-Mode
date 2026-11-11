@@ -47,7 +47,7 @@ class LiveVoiceMonitorService : Service() {
         private const val KEY_SILENCED = "live_monitor_silenced"
     }
 
-    @Volatile private var settings = VoiceControlStore.load(this)
+    @Volatile private var settings = VoiceControlSettings()
     @Volatile private var captureThread: Thread? = null
     @Volatile private var audioRecord: AudioRecord? = null
     @Volatile private var audioTrack: AudioTrack? = null
@@ -80,7 +80,29 @@ class LiveVoiceMonitorService : Service() {
             }
             ACTION_UPDATE -> {
                 settings = VoiceControlStore.load(this)
-                updateNotification()
+                if (!running.get()) {
+                    try {
+                        val notification = buildNotification()
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            startForeground(
+                                NOTIFICATION_ID,
+                                notification,
+                                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                            )
+                        } else {
+                            startForeground(NOTIFICATION_ID, notification)
+                        }
+                        startCapture()
+                    } catch (error: Exception) {
+                        getSharedPreferences(PREFS, MODE_PRIVATE)
+                            .edit().putBoolean(KEY_ACTIVE, false).apply()
+                        stopForeground(STOP_FOREGROUND_REMOVE)
+                        stopSelf()
+                        return START_NOT_STICKY
+                    }
+                } else {
+                    updateNotification()
+                }
                 return START_STICKY
             }
             ACTION_START, null -> {
