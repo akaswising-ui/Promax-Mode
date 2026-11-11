@@ -762,9 +762,9 @@ class GameAssistantService : Service() {
         panel = null
         panelParams = null
         metricsView = null
-        cpuMetricView = null
-        gpuMetricView = null
-        ramMetricView = null
+        cpuGaugeView = null
+        gpuGaugeView = null
+        ramGaugeView = null
     }
 
     private fun removeHandle() {
