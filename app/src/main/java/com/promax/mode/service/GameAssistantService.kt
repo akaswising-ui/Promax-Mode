@@ -189,9 +189,13 @@ class GameAssistantService : Service() {
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private fun monitorInterval(): Long {
-        val highRate = getSharedPreferences("promax_settings", MODE_PRIVATE)
-            .getBoolean("high_monitor_rate", false)
-        return if (highRate) 1_000L else 2_000L
+        val profile = getSharedPreferences("promax_settings", MODE_PRIVATE)
+            .getString("performance_profile", null)
+        return when (profile) {
+            "LOW POWER" -> 4_000L
+            "PRO GAMER" -> 1_000L
+            else -> 2_000L
+        }
     }
 
     private fun showEdgeHandle() {
@@ -502,6 +506,193 @@ class GameAssistantService : Service() {
             refreshMetrics()
         }
 
+        fun addGameHome() {
+            browser?.stopLoading()
+            browser?.destroy()
+            browser = null
+            content.removeAllViews()
+            metricsView = null
+
+            val homeScroll = ScrollView(this).apply { isFillViewport = true }
+            val home = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(2), dp(3), dp(2), dp(4))
+            }
+            homeScroll.addView(home)
+
+            val modeTitle = label("PERFORMANCE MODE", 11f, 0xFFB6D7D0.toInt())
+            modeTitle.setTypeface(null, android.graphics.Typeface.BOLD)
+            home.addView(modeTitle, LinearLayout.LayoutParams(-1, dp(30)))
+
+            val currentProfile = prefs.getString("performance_profile", "BALANCED") ?: "BALANCED"
+            val modeCards = linkedMapOf<String, TextView>()
+            val modeRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            fun setPerformanceProfile(profile: String) {
+                prefs.edit()
+                    .putString("performance_profile", profile)
+                    .putBoolean("high_monitor_rate", profile == "PRO GAMER")
+                    .apply()
+                modeCards.forEach { (name, view) ->
+                    val selected = name == profile
+                    view.background = panelSurface(
+                        if (selected) 0xFF174C48.toInt() else 0xFF242A34.toInt(),
+                        if (selected) 0xFF53C7B0.toInt() else 0xFF3B4653.toInt(),
+                        12
+                    )
+                    view.setTextColor(if (selected) 0xFFBDF4E7.toInt() else 0xFFD5DDE5.toInt())
+                }
+                handler.removeCallbacks(pollTask)
+                handler.post(pollTask)
+                Toast.makeText(
+                    this@GameAssistantService,
+                    when (profile) {
+                        "LOW POWER" -> "Low-power monitoring profile selected"
+                        "PRO GAMER" -> "High-rate monitoring profile selected"
+                        else -> "Balanced monitoring profile selected"
+                    },
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+            listOf("LOW POWER", "BALANCED", "PRO GAMER").forEach { profile ->
+                val tile = label(profile, 9f, 0xFFD5DDE5.toInt()).apply {
+                    gravity = Gravity.CENTER
+                    setPadding(dp(2), dp(3), dp(2), dp(3))
+                    isClickable = true
+                    isFocusable = true
+                }
+                modeCards[profile] = tile
+                modeRow.addView(tile, LinearLayout.LayoutParams(0, dp(54), 1f).apply {
+                    setMargins(dp(2), dp(2), dp(2), dp(4))
+                })
+                tile.setOnClickListener { setPerformanceProfile(profile) }
+            }
+            home.addView(modeRow)
+            setPerformanceProfile(currentProfile)
+
+            val metricsTitle = label("LIVE GAME STATUS", 11f, 0xFFB6D7D0.toInt()).apply {
+                setTypeface(null, android.graphics.Typeface.BOLD)
+            }
+            home.addView(metricsTitle, LinearLayout.LayoutParams(-1, dp(30)))
+            val liveMetrics = label("CPU: --     RAM: --\nGPU: driver dependent     FPS: start capture", 10f, 0xFFD9E2E8.toInt()).apply {
+                setPadding(dp(10), dp(8), dp(10), dp(8))
+                background = panelSurface(0xFF202832.toInt(), 0xFF37444E.toInt(), 12)
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            metricsView = liveMetrics
+            home.addView(liveMetrics, LinearLayout.LayoutParams(-1, dp(58)).apply {
+                bottomMargin = dp(6)
+            })
+            home.addView(label(
+                "CPU / RAM are device-wide. GPU uses an exposed driver counter. FPS needs Shizuku and a readable game layer.",
+                9f,
+                0xFF9BAEB7.toInt()
+            ), LinearLayout.LayoutParams(-1, dp(34)))
+
+            val monitorRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            val startFps = actionTile("START FPS") {
+                val pkg = activeGamePackage
+                if (pkg.isBlank()) {
+                    Toast.makeText(this@GameAssistantService, "Open a selected game first.", Toast.LENGTH_SHORT).show()
+                } else {
+                    liveMetrics.text = "FPS: capturing " + activeGameLabel + "…"
+                    Thread {
+                        val result = runCatching {
+                            val started = ShizukuController.startFrameStats(pkg)
+                            if (started != "CAPTURE_STARTED") started
+                            else {
+                                var measured = "FPS_UNAVAILABLE: no matching layer"
+                                repeat(6) {
+                                    Thread.sleep(850L)
+                                    val read = ShizukuController.dumpFrameStats(pkg)
+                                    if (read.startsWith("FPS=")) {
+                                        measured = read
+                                        return@runCatching measured
+                                    }
+                                    measured = read
+                                }
+                                measured
+                            }
+                        }.getOrElse { "FPS_UNAVAILABLE: connect Shizuku" }
+                        handler.post {
+                            val current = liveMetrics.text.toString()
+                            liveMetrics.text = current.substringBefore("\n") + "\n" + result
+                        }
+                    }.start()
+                }
+            }
+            val sampleGpu = actionTile("SAMPLE GPU") {
+                Thread {
+                    val result = runCatching {
+                        ShizukuController.getGpuUsage()
+                        Thread.sleep(1_050L)
+                        ShizukuController.getGpuUsage()
+                    }.getOrElse { "GPU_UNAVAILABLE: connect Shizuku" }
+                    handler.post {
+                        Toast.makeText(this@GameAssistantService, result, Toast.LENGTH_LONG).show()
+                    }
+                }.start()
+            }
+            monitorRow.addView(startFps, LinearLayout.LayoutParams(0, dp(42), 1f).apply {
+                setMargins(dp(2), dp(2), dp(3), dp(2))
+            })
+            monitorRow.addView(sampleGpu, LinearLayout.LayoutParams(0, dp(42), 1f).apply {
+                setMargins(dp(3), dp(2), dp(2), dp(2))
+            })
+            home.addView(monitorRow)
+
+            val toolsTitle = label("GAME TOOLS", 11f, 0xFFB6D7D0.toInt()).apply {
+                setTypeface(null, android.graphics.Typeface.BOLD)
+            }
+            home.addView(toolsTitle, LinearLayout.LayoutParams(-1, dp(34)))
+
+            fun toolRow(first: Pair<String, () -> Unit>, second: Pair<String, () -> Unit>) {
+                val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                row.addView(actionTile(first.first, first.second), LinearLayout.LayoutParams(0, dp(52), 1f).apply {
+                    setMargins(dp(2), dp(2), dp(3), dp(2))
+                })
+                row.addView(actionTile(second.first, second.second), LinearLayout.LayoutParams(0, dp(52), 1f).apply {
+                    setMargins(dp(3), dp(2), dp(2), dp(2))
+                })
+                home.addView(row)
+            }
+            toolRow("🎙\nVOICE CHANGER" to { showVoicePanel?.invoke() },
+                "🎨\nGAME FILTERS" to {
+                    val selected = prefs.getString("game_filter", "OFF") ?: "OFF"
+                    applyGameFilter(if (selected == "WARM") "OFF" else "WARM")
+                    Toast.makeText(this@GameAssistantService, if (selected == "WARM") "Game filter off" else "Warm game filter on", Toast.LENGTH_SHORT).show()
+                })
+            toolRow("☝\nTOUCH OPTIM." to {
+                Toast.makeText(
+                    this@GameAssistantService,
+                    "Touch sampling is controlled by the phone manufacturer; Promax cannot change the OEM controller.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }, "🔔\nNOTIFICATIONS" to {
+                if (!PermissionTools.hasNotificationListenerAccess(this@GameAssistantService)) {
+                    PermissionTools.openNotificationListenerSettings(this@GameAssistantService)
+                } else {
+                    val next = !prefs.getBoolean("block_notifications", false)
+                    prefs.edit().putBoolean("block_notifications", next).apply()
+                    Toast.makeText(this@GameAssistantService, if (next) "Notifications blocked" else "Notifications allowed", Toast.LENGTH_SHORT).show()
+                }
+            })
+            toolRow("☎\nCALL BLOCKER" to { toggleUnknownCallBlocking() },
+                "⚙\nMORE SETTINGS" to { showToolsPanel?.invoke() })
+
+            val limitation = label(
+                "Performance profile changes Promax monitoring only. OEM CPU/GPU boost and touch response require supported system services.",
+                9f,
+                0xFF9BAEB7.toInt()
+            )
+            limitation.setPadding(dp(4), dp(8), dp(4), dp(5))
+            home.addView(limitation)
+            content.addView(homeScroll)
+            refreshMetrics()
+            homeScroll.alpha = 0f
+            homeScroll.translationY = dp(8).toFloat()
+            homeScroll.animate().alpha(1f).translationY(0f).setDuration(190).start()
+        }
+
         fun addBrowser() {
             content.removeAllViews()
             metricsView = null
@@ -752,7 +943,7 @@ class GameAssistantService : Service() {
         showVoicePanel = { addVoice() }
         showToolsPanel = { addTools() }
         showBrowserPanel = { addBrowser() }
-        addVoice()
+        addGameHome()
 
         val layout = WindowManager.LayoutParams(
             if (resources.displayMetrics.widthPixels > resources.displayMetrics.heightPixels) {
