@@ -746,24 +746,23 @@ private fun VoiceStudioScreen() {
     }
 
     LaunchedEffect(liveMonitor) {
-        if (liveMonitor) {
-            repeat(8) {
-                delay(350)
-                val prefs = context.getSharedPreferences("promax_voice_runtime", Context.MODE_PRIVATE)
-                if (prefs.getBoolean("live_monitor_active", false)) {
-                    liveStatus = if (prefs.getBoolean("live_monitor_silenced", false)) {
-                        "Android has silenced Promax because another app owns microphone priority."
-                    } else {
-                        "Live DSP preview active • headphones recommended."
-                    }
-                    return@LaunchedEffect
+        var startupChecks = 0
+        while (liveMonitor) {
+            val prefs = context.getSharedPreferences("promax_voice_runtime", Context.MODE_PRIVATE)
+            val active = prefs.getBoolean("live_monitor_active", false)
+            if (active) {
+                liveStatus = if (prefs.getBoolean("live_monitor_silenced", false)) {
+                    "Android has silenced Promax because another app owns microphone priority."
+                } else {
+                    "Live DSP preview active • headphones recommended."
                 }
-            }
-            val active = context.getSharedPreferences("promax_voice_runtime", Context.MODE_PRIVATE)
-                .getBoolean("live_monitor_active", false)
-            if (!active) {
+                delay(700)
+            } else if (startupChecks < 12) {
+                startupChecks += 1
+                delay(350)
+            } else {
                 liveMonitor = false
-                liveStatus = "Live preview did not start. Check microphone permission and Android's microphone access."
+                liveStatus = "Live preview stopped or failed. Check microphone permission and Android's microphone access."
             }
         }
     }
